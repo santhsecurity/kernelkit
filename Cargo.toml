@@ -1,0 +1,45 @@
+[workspace]
+members = ["."]
+
+[package]
+name = "kernelkit"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+authors = ["Corum Collective LLC <contact@santh.io>"]
+repository = "https://github.com/santhsecurity/Santh"
+homepage = "https://github.com/santhsecurity/kernelkit"
+documentation = "https://docs.rs/kernelkit"
+description = "Cross-platform kernel optimization toolkit with Linux fast paths and safe fallbacks"
+readme = "README.md"
+keywords = ["kernel", "numa", "hugepages", "mlock", "prefetch"]
+categories = ["memory-management", "hardware-support", "os"]
+include = ["src/**", "Cargo.toml"]
+
+[dependencies]
+libc = "0.2"
+libloading = { version = "0.8", default-features = false }
+memmap2 = "0.9"
+thiserror = "2"
+
+[dev-dependencies]
+criterion = "0.5"
+faultkit = { path = "../../testing/faultkit" }
+proptest = "1"
+tempfile = "3"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"
+panic = "deny"
+pedantic = { level = "warn", priority = -1 }
+
+[lints.rust]
+missing_docs = "warn"
+
+[[bench]]
+name = "mmap_bench"
+harness = false

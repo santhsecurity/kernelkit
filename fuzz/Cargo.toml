@@ -1,0 +1,18 @@
+[package]
+name = "kernelkit-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+repository = "https://github.com/santhsecurity/kernelkit"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+kernelkit = { path = ".." }
+
+[[bin]]
+name = "fuzz_binformat"
+path = "fuzz_targets/fuzz_binformat.rs"
+doc = false
