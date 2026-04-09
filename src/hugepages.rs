@@ -216,6 +216,23 @@ impl<T> HugeAllocation<T> {
             return Ok(None);
         }
 
+        if (raw_ptr as usize) % mem::align_of::<T>() != 0 {
+            unsafe {
+                libc::munmap(raw_ptr, map_len);
+            }
+            return Err(Error::System {
+                operation: "mmap(align)",
+                source: std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "hugepage mapping alignment {} does not satisfy type alignment {}",
+                        raw_ptr as usize,
+                        mem::align_of::<T>()
+                    ),
+                ),
+            });
+        }
+
         let Some(typed_ptr) = NonNull::new(raw_ptr.cast::<T>()) else {
             let source = std::io::Error::last_os_error();
             unsafe {
@@ -281,12 +298,6 @@ const fn align_up(value: usize, alignment: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::panic,
-        clippy::cast_possible_truncation
-    )]
     use super::HugePageVec;
 
     #[test]

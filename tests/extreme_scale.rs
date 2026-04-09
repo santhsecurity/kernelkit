@@ -1,7 +1,5 @@
 //! Extreme scale tests for kernelkit.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 #[test]
 fn page_size_is_power_of_two() {
     let ps = kernelkit::page_size();
@@ -63,7 +61,7 @@ fn mmap_open_read_1_byte() {
 fn mmap_open_read_1mb() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("big.bin");
-    std::fs::write(&path, vec![0xAB_u8; 1_000_000]).unwrap();
+    std::fs::write(&path, &vec![0xAB_u8; 1_000_000]).unwrap();
     let mmap = kernelkit::mmap::open_read(&path).unwrap();
     assert_eq!(mmap.len(), 1_000_000);
     assert_eq!(mmap[0], 0xAB);

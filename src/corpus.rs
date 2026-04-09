@@ -7,6 +7,35 @@ use memmap2::Mmap;
 
 use crate::{Error, Result};
 
+#[derive(Clone, Copy)]
+struct FileIdentity {
+    len: u64,
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
+}
+
+impl FileIdentity {
+    fn from_metadata(metadata: &std::fs::Metadata) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            return Self {
+                len: metadata.len(),
+                dev: metadata.dev(),
+                ino: metadata.ino(),
+            };
+        }
+        #[cfg(not(unix))]
+        {
+            Self {
+                len: metadata.len(),
+            }
+        }
+    }
+}
+
 /// Memory-mapped corpus handle for large local datasets.
 #[derive(Debug)]
 pub struct MmapCorpus {
@@ -66,6 +95,7 @@ impl MmapCorpus {
                 operation: "metadata",
                 source,
             })?;
+            let expected_identity = FileIdentity::from_metadata(&metadata);
 
             let size = metadata.len();
             if size > max_file_bytes {
@@ -96,7 +126,8 @@ impl MmapCorpus {
                     source,
                 }
             })?;
-            advise_sequential(&mmap);
+            validate_mapping_stability(&file, expected_identity, size)?;
+            advise_sequential(&mmap, &path)?;
 
             mappings.push(MmapRegion { mmap, path, size });
         }
@@ -177,23 +208,74 @@ fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn advise_sequential(mmap: &Mmap) {
+fn advise_sequential(mmap: &Mmap, path: &Path) -> Result<()> {
     if mmap.is_empty() {
-        return;
+        return Ok(());
     }
 
-    // SAFETY: advisory only; the mapping is valid for `mmap.len()` bytes.
+    // SAFETY: advisory call against a valid mapping.
     let ptr = mmap.as_ptr().cast::<libc::c_void>().cast_mut();
-    let _ = unsafe { libc::madvise(ptr, mmap.len(), libc::MADV_SEQUENTIAL) };
-    let _ = unsafe { libc::madvise(ptr, mmap.len(), libc::MADV_HUGEPAGE) };
+    let sequential_result = unsafe { libc::madvise(ptr, mmap.len(), libc::MADV_SEQUENTIAL) };
+    if sequential_result != 0 {
+        return Err(Error::System {
+            operation: "madvise(SEQUENTIAL)",
+            source: std::io::Error::other(format!(
+                "{} (path: {})",
+                std::io::Error::last_os_error(),
+                path.display()
+            )),
+        });
+    }
+    // SAFETY: advisory call against a valid mapping.
+    let hugepage_result = unsafe { libc::madvise(ptr, mmap.len(), libc::MADV_HUGEPAGE) };
+    if hugepage_result != 0 {
+        return Err(Error::System {
+            operation: "madvise(HUGEPAGE)",
+            source: std::io::Error::other(format!(
+                "{} (path: {})",
+                std::io::Error::last_os_error(),
+                path.display()
+            )),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(not(target_os = "linux"))]
-fn advise_sequential(_mmap: &Mmap) {}
+fn advise_sequential(_mmap: &Mmap, _path: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn validate_mapping_stability(file: &File, expected: FileIdentity, expected_len: u64) -> Result<()> {
+    let metadata = file.metadata().map_err(|source| Error::System {
+        operation: "metadata(revalidate)",
+        source,
+    })?;
+    let current = FileIdentity::from_metadata(&metadata);
+    if current.len != expected_len || current.len != expected.len || !same_inode(expected, current) {
+        return Err(Error::System {
+            operation: "mmap(revalidate)",
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "corpus file changed during mapping; Fix: run corpus mapping on immutable input",
+            ),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn same_inode(expected: FileIdentity, current: FileIdentity) -> bool {
+    expected.dev == current.dev && expected.ino == current.ino
+}
+
+#[cfg(not(unix))]
+fn same_inode(_expected: FileIdentity, _current: FileIdentity) -> bool {
+    true
+}
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::MmapCorpus;
     use std::fs;
 

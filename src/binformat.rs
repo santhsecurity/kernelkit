@@ -139,8 +139,6 @@ pub fn read_section(data: &[u8]) -> Result<(&[u8], &[u8])> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
     use super::{FileHeader, read_section};
     use proptest::prelude::*;
 

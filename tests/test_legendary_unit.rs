@@ -1,10 +1,4 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::unnecessary_wraps,
-    missing_docs
-)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use kernelkit::readahead::readahead;
 use kernelkit::{HugePageVec, MmapBlock, MmapCorpus};
@@ -23,7 +17,7 @@ fn test_legendary_unit_hugepagevec() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn test_legendary_unit_mmapblock() -> Result<(), Box<dyn Error>> {
-    let block = MmapBlock::new(4096)?;
+    let mut block = MmapBlock::new(4096)?;
     assert_eq!(block.len(), 4096);
     assert!(!block.is_empty());
     assert!(block.numa_node().is_none());
@@ -93,6 +87,7 @@ fn test_legendary_unit_concurrent_mmapblock() -> Result<(), Box<dyn Error>> {
             for _ in 0..10 {
                 let block = MmapBlock::new(4096).unwrap();
                 assert_eq!(block.len(), 4096);
+                let mut block = block;
                 let ptr = block.as_mut_ptr();
                 unsafe {
                     ptr.write(0xAA);

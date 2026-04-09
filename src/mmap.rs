@@ -27,7 +27,7 @@ impl MmapBlock {
         }
 
         let ptr = map_region(len)?;
-        advise_hugepage(ptr, len);
+        advise_hugepage(ptr, len)?;
 
         Ok(Self {
             ptr,
@@ -47,7 +47,7 @@ impl MmapBlock {
         }
 
         let ptr = map_region(len)?;
-        advise_hugepage(ptr, len);
+        advise_hugepage(ptr, len)?;
 
         #[cfg(target_os = "linux")]
         {
@@ -65,13 +65,22 @@ impl MmapBlock {
         Ok(Self {
             ptr,
             len,
+            #[cfg(target_os = "linux")]
             numa_node: Some(node),
+            #[cfg(not(target_os = "linux"))]
+            numa_node: None,
         })
+    }
+
+    /// Immutable raw pointer to the start of the mapping.
+    #[must_use]
+    pub fn as_ptr(&self) -> *const u8 {
+        self.ptr.as_ptr().cast_const()
     }
 
     /// Mutable raw pointer to the start of the mapping.
     #[must_use]
-    pub fn as_mut_ptr(&self) -> *mut u8 {
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
         self.ptr.as_ptr()
     }
 
@@ -100,12 +109,9 @@ impl Drop for MmapBlock {
     }
 }
 
-// SAFETY: The mapping owns a unique virtual address range and can be sent across
-// threads. Mutation safety is the caller's responsibility, just like `Vec<u8>`.
+// SAFETY: The mapping owns a unique virtual address range and can be transferred
+// across threads without aliasing.
 unsafe impl Send for MmapBlock {}
-// SAFETY: &MmapBlock only exposes as_mut_ptr() which returns a raw pointer —
-// the caller is responsible for synchronization, same as &Vec<u8>.
-unsafe impl Sync for MmapBlock {}
 
 fn map_region(len: usize) -> Result<NonNull<u8>> {
     #[cfg(target_os = "linux")]
@@ -141,13 +147,22 @@ fn unmap_region(ptr: NonNull<u8>, len: usize) {
 }
 
 #[cfg(target_os = "linux")]
-fn advise_hugepage(ptr: NonNull<u8>, len: usize) {
-    // SAFETY: advisory only; failure is non-fatal.
-    let _ = unsafe { libc::madvise(ptr.as_ptr().cast::<libc::c_void>(), len, MADVISE_HUGEPAGE) };
+fn advise_hugepage(ptr: NonNull<u8>, len: usize) -> Result<()> {
+    // SAFETY: pointer and length represent a currently-valid mapping.
+    let result = unsafe { libc::madvise(ptr.as_ptr().cast::<libc::c_void>(), len, MADVISE_HUGEPAGE) };
+    if result != 0 {
+        return Err(Error::System {
+            operation: "madvise(HUGEPAGE)",
+            source: std::io::Error::last_os_error(),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(not(target_os = "linux"))]
-fn advise_hugepage(_ptr: NonNull<u8>, _len: usize) {}
+fn advise_hugepage(_ptr: NonNull<u8>, _len: usize) -> Result<()> {
+    Ok(())
+}
 
 #[cfg(target_os = "linux")]
 fn bind_to_numa_node(ptr: NonNull<u8>, len: usize, node: u32) -> Result<()> {
@@ -236,7 +251,10 @@ pub fn open_read(path: impl AsRef<std::path::Path>) -> Result<memmap2::Mmap> {
     if faultkit::should_fail_mmap() {
         return Err(crate::Error::System {
             operation: "mmap",
-            source: std::io::Error::other("faultkit: injected mmap failure"),
+            source: std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "faultkit: injected mmap failure",
+            ),
         });
     }
 
@@ -257,7 +275,10 @@ pub fn open_read_with_size(
     if faultkit::should_fail_mmap() {
         return Err(crate::Error::System {
             operation: "mmap",
-            source: std::io::Error::other("faultkit: injected mmap failure"),
+            source: std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "faultkit: injected mmap failure",
+            ),
         });
     }
 
@@ -269,6 +290,7 @@ pub fn open_read_with_size(
         operation: "metadata",
         source,
     })?;
+    let expected_identity = FileIdentity::from_metadata(&metadata);
     if metadata.len() != expected_size {
         return Err(Error::System {
             operation: "open_read_with_size",
@@ -288,12 +310,28 @@ pub fn open_read_with_size(
             source,
         })?;
 
+    validate_mapped_file_identity(&file, expected_identity, expected_size)?;
+
     #[cfg(target_os = "linux")]
     if !mmap.is_empty() {
         let ptr = mmap.as_ptr().cast::<libc::c_void>().cast_mut();
         let len = mmap.len();
-        let _ = unsafe { libc::madvise(ptr, len, libc::MADV_SEQUENTIAL) };
-        let _ = unsafe { libc::madvise(ptr, len, libc::MADV_HUGEPAGE) };
+        // SAFETY: pointer and length come from a valid mmap region.
+        let sequential_result = unsafe { libc::madvise(ptr, len, libc::MADV_SEQUENTIAL) };
+        if sequential_result != 0 {
+            return Err(Error::System {
+                operation: "madvise(SEQUENTIAL)",
+                source: std::io::Error::last_os_error(),
+            });
+        }
+        // SAFETY: pointer and length come from a valid mmap region.
+        let hugepage_result = unsafe { libc::madvise(ptr, len, libc::MADV_HUGEPAGE) };
+        if hugepage_result != 0 {
+            return Err(Error::System {
+                operation: "madvise(HUGEPAGE)",
+                source: std::io::Error::last_os_error(),
+            });
+        }
     }
 
     Ok(mmap)
@@ -312,11 +350,21 @@ pub fn open_with_advice(
         operation: "open",
         source,
     })?;
+    let expected_identity = file.metadata().map_err(|source| Error::System {
+        operation: "metadata",
+        source,
+    })?;
+    let expected_identity = FileIdentity::from_metadata(&expected_identity);
     let mmap =
         unsafe { memmap2::MmapOptions::new().map(&file) }.map_err(|source| Error::System {
             operation: "mmap",
             source,
         })?;
+    let mmap_len = u64::try_from(mmap.len()).map_err(|_| Error::System {
+        operation: "open_with_advice",
+        source: std::io::Error::other("mapped region length does not fit in u64"),
+    })?;
+    validate_mapped_file_identity(&file, expected_identity, mmap_len)?;
 
     #[cfg(target_os = "linux")]
     if !mmap.is_empty() {
@@ -327,8 +375,22 @@ pub fn open_with_advice(
             MmapAdvice::Random => libc::MADV_RANDOM,
             MmapAdvice::WillNeed => libc::MADV_WILLNEED,
         };
-        let _ = unsafe { libc::madvise(ptr, len, madvise_flag) };
-        let _ = unsafe { libc::madvise(ptr, len, libc::MADV_HUGEPAGE) };
+        // SAFETY: pointer and length come from a valid mmap region.
+        let advice_result = unsafe { libc::madvise(ptr, len, madvise_flag) };
+        if advice_result != 0 {
+            return Err(Error::System {
+                operation: "madvise(file_advice)",
+                source: std::io::Error::last_os_error(),
+            });
+        }
+        // SAFETY: pointer and length come from a valid mmap region.
+        let hugepage_result = unsafe { libc::madvise(ptr, len, libc::MADV_HUGEPAGE) };
+        if hugepage_result != 0 {
+            return Err(Error::System {
+                operation: "madvise(HUGEPAGE)",
+                source: std::io::Error::last_os_error(),
+            });
+        }
     }
 
     Ok(mmap)
@@ -345,15 +407,75 @@ pub fn release(mmap: memmap2::Mmap) {
     drop(mmap);
 }
 
+#[derive(Clone, Copy)]
+struct FileIdentity {
+    len: u64,
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
+}
+
+impl FileIdentity {
+    fn from_metadata(metadata: &std::fs::Metadata) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            return Self {
+                len: metadata.len(),
+                dev: metadata.dev(),
+                ino: metadata.ino(),
+            };
+        }
+        #[cfg(not(unix))]
+        {
+            Self {
+                len: metadata.len(),
+            }
+        }
+    }
+}
+
+fn validate_mapped_file_identity(
+    file: &std::fs::File,
+    expected: FileIdentity,
+    expected_len: u64,
+) -> Result<()> {
+    let current_metadata = file.metadata().map_err(|source| Error::System {
+        operation: "metadata(revalidate)",
+        source,
+    })?;
+    let current = FileIdentity::from_metadata(&current_metadata);
+    if current.len != expected_len || current.len != expected.len || !same_inode(expected, current) {
+        return Err(Error::System {
+            operation: "mmap(revalidate)",
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "file changed during mapping; Fix: use immutable input files or lock writers",
+            ),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn same_inode(expected: FileIdentity, current: FileIdentity) -> bool {
+    expected.dev == current.dev && expected.ino == current.ino
+}
+
+#[cfg(not(unix))]
+fn same_inode(_expected: FileIdentity, _current: FileIdentity) -> bool {
+    true
+}
+
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::{MmapBlock, open_read, open_read_with_size};
     use std::io::Write;
 
     #[test]
     fn allocates_and_exposes_len() {
-        let block = MmapBlock::new(4096).expect("mmap block");
+        let mut block = MmapBlock::new(4096).expect("mmap block");
         assert_eq!(block.len(), 4096);
         assert!(!block.is_empty());
         assert!(!block.as_mut_ptr().is_null());
@@ -367,7 +489,7 @@ mod tests {
 
     #[test]
     fn write_and_read_back() {
-        let block = MmapBlock::new(4096).expect("mmap block");
+        let mut block = MmapBlock::new(4096).expect("mmap block");
         // Write bytes through the raw pointer
         let ptr = block.as_mut_ptr();
         unsafe {
@@ -392,9 +514,9 @@ mod tests {
     }
 
     #[test]
-    fn is_send_and_sync() {
-        fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<MmapBlock>();
+    fn is_send_only() {
+        fn assert_send<T: Send>() {}
+        assert_send::<MmapBlock>();
     }
 
     #[test]

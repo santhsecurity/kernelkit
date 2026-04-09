@@ -1,10 +1,4 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::unnecessary_wraps,
-    missing_docs
-)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use kernelkit::readahead::readahead;
 use kernelkit::{HugePageVec, MmapBlock, MmapCorpus};
@@ -105,7 +99,7 @@ fn test_legendary_adversarial_hugepagevec_zero_sized() -> Result<(), Box<dyn Err
 
 #[test]
 fn test_legendary_adversarial_mmapblock_alternating_patterns() -> Result<(), Box<dyn Error>> {
-    let block = MmapBlock::new(4096).unwrap();
+    let mut block = MmapBlock::new(4096).unwrap();
     let ptr = block.as_mut_ptr();
     unsafe {
         for i in 0..4096 {

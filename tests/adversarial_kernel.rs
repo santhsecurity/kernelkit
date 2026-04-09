@@ -7,16 +7,6 @@
 //! - Data integrity under all operations
 //! - Proper error handling for malformed inputs
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::needless_range_loop,
-    clippy::unreadable_literal
-)]
-
 use std::fs;
 use std::io::Write;
 
@@ -118,7 +108,7 @@ fn mmap_anon_zero_bytes_fails() {
 
 #[test]
 fn mmap_anon_4096_bytes_succeeds() {
-    let block = MmapBlock::new(4096).expect("4KB allocation should succeed");
+    let mut block = MmapBlock::new(4096).expect("4KB allocation should succeed");
     assert_eq!(block.len(), 4096);
     assert!(!block.is_empty());
     assert!(!block.as_mut_ptr().is_null());
@@ -127,7 +117,7 @@ fn mmap_anon_4096_bytes_succeeds() {
 #[test]
 fn mmap_anon_2mb_hugepage_size_succeeds() {
     let size = 2 * 1024 * 1024; // 2MB
-    let block = MmapBlock::new(size).expect("2MB allocation should succeed");
+    let mut block = MmapBlock::new(size).expect("2MB allocation should succeed");
     assert_eq!(block.len(), size);
 
     // Verify we can write and read back
@@ -143,9 +133,7 @@ fn mmap_anon_2mb_hugepage_size_succeeds() {
 #[test]
 fn mmap_block_send_sync_bounds() {
     fn assert_send<T: Send>() {}
-    fn assert_sync<T: Sync>() {}
     assert_send::<MmapBlock>();
-    assert_sync::<MmapBlock>();
 }
 
 #[test]
@@ -322,7 +310,7 @@ fn prefetch_read_does_not_corrupt_data() {
     let original = data.clone();
 
     for i in 0..data.len() {
-        prefetch::prefetch_read(&raw const data[i]);
+        prefetch::prefetch_read(&data[i]);
     }
 
     assert_eq!(data, original, "prefetch_read should not modify data");
@@ -330,11 +318,11 @@ fn prefetch_read_does_not_corrupt_data() {
 
 #[test]
 fn prefetch_write_does_not_corrupt_data() {
-    let data: Vec<u8> = (0..=255).collect();
+    let mut data: Vec<u8> = (0..=255).collect();
     let original = data.clone();
 
     for i in 0..data.len() {
-        prefetch::prefetch_write(&raw const data[i]);
+        prefetch::prefetch_write(&mut data[i]);
     }
 
     assert_eq!(data, original, "prefetch_write should not modify data");
@@ -835,8 +823,7 @@ fn mmap_block_multiple_allocations() {
     // Allocate and deallocate many blocks to stress the system
     for i in 0..100 {
         let size = 4096 + (i * 4096) % (1024 * 1024); // Varying sizes up to 1MB
-        let block =
-            MmapBlock::new(size).unwrap_or_else(|_| panic!("allocation {i} should succeed"));
+        let block = MmapBlock::new(size).expect(&format!("allocation {} should succeed", i));
         assert_eq!(block.len(), size);
         // Block is dropped here, testing munmap path
     }
@@ -897,7 +884,7 @@ fn binformat_many_sections() {
     let mut remaining = bytes.as_slice();
     for i in 0..section_count {
         let (section, rest) =
-            binformat::read_section(remaining).unwrap_or_else(|_| panic!("read section {i}"));
+            binformat::read_section(remaining).expect(&format!("read section {}", i));
         assert_eq!(section.len(), 100);
         assert!(section.iter().all(|&b| b == i as u8));
         remaining = rest;

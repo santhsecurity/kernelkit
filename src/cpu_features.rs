@@ -166,7 +166,6 @@ fn parse_cache_value(raw: &str) -> Result<usize, ()> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::detect;
 
     #[test]

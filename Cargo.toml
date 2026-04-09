@@ -8,14 +8,14 @@ edition = "2024"
 rust-version = "1.89"
 license = "MIT"
 authors = ["Corum Collective LLC <contact@santh.io>"]
-repository = "https://github.com/santhsecurity/kernelkit"
+repository = "https://github.com/santhsecurity/Santh"
 homepage = "https://github.com/santhsecurity/kernelkit"
 documentation = "https://docs.rs/kernelkit"
 description = "Cross-platform kernel optimization toolkit with Linux fast paths and safe fallbacks"
 readme = "README.md"
-keywords = ["kernel", "numa", "hugepages", "mlock", "prefetch"]
-categories = ["memory-management", "hardware-support", "os"]
-include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
+keywords = ["kernel", "numa", "hugepages", "mlock", "memory"]
+categories = ["memory-management", "hardware-support", "os::linux-apis"]
+include = ["src/**", "Cargo.toml"]
 
 [dependencies]
 libc = "0.2"
@@ -25,7 +25,7 @@ thiserror = "2"
 
 [dev-dependencies]
 criterion = "0.5"
-faultkit = { version = "0.1", path = "../../testing/faultkit" }
+faultkit = { path = "../../testing/faultkit" }
 proptest = "1"
 tempfile = "3"
 

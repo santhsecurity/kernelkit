@@ -1,10 +1,4 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::unnecessary_wraps,
-    missing_docs
-)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use kernelkit::{HugePageVec, MmapCorpus};
 use std::error::Error;

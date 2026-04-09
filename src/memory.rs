@@ -44,11 +44,10 @@ impl MemoryStatus {
     }
 
     fn read_from_meminfo() -> crate::Result<Self> {
-        let contents =
-            std::fs::read_to_string(PROC_MEMINFO_PATH).map_err(|source| Error::SysfsRead {
-                path: PROC_MEMINFO_PATH,
-                source,
-            })?;
+        let contents = std::fs::read_to_string(PROC_MEMINFO_PATH).map_err(|source| Error::SysfsRead {
+            path: PROC_MEMINFO_PATH,
+            source,
+        })?;
 
         let mut mem_total_kib = None;
         let mut mem_available_kib = None;
@@ -88,11 +87,9 @@ impl MemoryStatus {
             }
         }
 
-        let total_bytes = mem_total_kib
-            .map(Self::kib_to_bytes)
-            .ok_or(Error::SysfsParse {
-                path: PROC_MEMINFO_PATH,
-            })?;
+        let total_bytes = mem_total_kib.map(Self::kib_to_bytes).ok_or(Error::SysfsParse {
+            path: PROC_MEMINFO_PATH,
+        })?;
 
         let available_bytes = mem_available_kib
             .or_else(|| {
@@ -145,7 +142,6 @@ pub fn memory_pressure() -> crate::Result<MemoryStatus> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
 
     #[test]
@@ -194,7 +190,7 @@ mod tests {
             .unwrap_or_default();
 
         assert_eq!(mem_total_kib, Some(1024));
-        assert_eq!(available_kib, 190);
+        assert_eq!(available_kib, Some(190).unwrap_or_default());
         assert_eq!(
             MemoryStatus::kib_to_bytes(available_kib),
             190 * KIB_TO_BYTES

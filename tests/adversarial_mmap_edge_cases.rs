@@ -3,12 +3,6 @@
 //! These tests verify robust handling of:
 //! - Files with changing content during mmap
 //! - Very long paths
-
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::unreadable_literal
-)]
 //! - Paths with special characters
 //! - Concurrent modifications
 //! - Resource exhaustion scenarios
@@ -31,7 +25,7 @@ use kernelkit::mmap::{self, MmapAdvice, MmapBlock};
 fn mmap_very_long_path_fails_gracefully() {
     // Create a path that exceeds typical filesystem limits
     let long_name = "a".repeat(300); // Most filesystems limit to 255 bytes for filename
-    let path = format!("/tmp/{long_name}");
+    let path = format!("/tmp/{}", long_name);
 
     let result = mmap::open_read(&path);
 
@@ -144,7 +138,7 @@ fn mmap_with_different_advice_succeeds() {
 // 3. MMAP BLOCK EDGE CASES
 // =============================================================================
 
-/// CRITICAL: `MmapBlock` should handle various sizes correctly.
+/// CRITICAL: MmapBlock should handle various sizes correctly.
 #[test]
 fn mmap_block_various_sizes() {
     let sizes = vec![
@@ -157,11 +151,12 @@ fn mmap_block_various_sizes() {
     ];
 
     for size in sizes {
-        let block = MmapBlock::new(size).unwrap_or_else(|_| panic!("allocate {size} bytes"));
-        assert_eq!(block.len(), size, "size mismatch for {size}");
+        let mut block = MmapBlock::new(size).expect(&format!("allocate {} bytes", size));
+        assert_eq!(block.len(), size, "size mismatch for {}", size);
         assert!(
             !block.as_mut_ptr().is_null(),
-            "ptr must not be null for {size}"
+            "ptr must not be null for {}",
+            size
         );
 
         // Verify we can write and read
@@ -173,15 +168,16 @@ fn mmap_block_various_sizes() {
                 assert_eq!(
                     *ptr.add(size - 1),
                     0xCD,
-                    "last byte write failed for {size}"
+                    "last byte write failed for {}",
+                    size
                 );
             }
-            assert_eq!(*ptr, 0xAB, "first byte write failed for {size}");
+            assert_eq!(*ptr, 0xAB, "first byte write failed for {}", size);
         }
     }
 }
 
-/// CRITICAL: `MmapBlock` very large allocation should fail gracefully.
+/// CRITICAL: MmapBlock very large allocation should fail gracefully.
 #[test]
 fn mmap_block_huge_allocation_fails_gracefully() {
     // Try to allocate an impossibly large block
@@ -190,7 +186,7 @@ fn mmap_block_huge_allocation_fails_gracefully() {
     assert!(result.is_err(), "allocation of usize::MAX should fail");
 }
 
-/// CRITICAL: `MmapBlock` should handle allocation near address space limits.
+/// CRITICAL: MmapBlock should handle allocation near address space limits.
 #[test]
 fn mmap_block_large_allocation_boundary() {
     // Try a large but potentially valid size
@@ -201,6 +197,7 @@ fn mmap_block_large_allocation_boundary() {
     match MmapBlock::new(large_size) {
         Ok(block) => {
             assert_eq!(block.len(), large_size);
+            let mut block = block;
             // Verify we can access first and last bytes
             let ptr = block.as_mut_ptr();
             unsafe {
@@ -243,7 +240,7 @@ fn mmap_concurrent_reads_are_safe() {
             let end = start + 100_000;
 
             for i in start..end {
-                assert_eq!(mmap[i], (i % 256) as u8, "data mismatch at {i}");
+                assert_eq!(mmap[i], (i % 256) as u8, "data mismatch at {}", i);
             }
         }));
     }
@@ -253,7 +250,7 @@ fn mmap_concurrent_reads_are_safe() {
     }
 }
 
-/// CRITICAL: Multiple `MmapBlocks` allocated concurrently should be safe.
+/// CRITICAL: Multiple MmapBlocks allocated concurrently should be safe.
 #[test]
 fn mmap_block_concurrent_allocations_are_safe() {
     let mut handles = vec![];
@@ -262,9 +259,10 @@ fn mmap_block_concurrent_allocations_are_safe() {
         handles.push(thread::spawn(move || {
             for i in 0..10 {
                 let size = 4096 + (i * 4096);
-                let block = MmapBlock::new(size)
-                    .unwrap_or_else(|_| panic!("alloc {size} in thread {thread_id}"));
+                let block =
+                    MmapBlock::new(size).expect(&format!("alloc {} in thread {}", size, thread_id));
                 assert_eq!(block.len(), size);
+                let mut block = block;
 
                 // Write thread-specific pattern
                 let ptr = block.as_mut_ptr();
@@ -318,8 +316,8 @@ fn mmap_corpus_many_small_files() {
 
     // Create 100 small files
     for i in 0..100 {
-        let path = dir.path().join(format!("file_{i:03}.txt"));
-        fs::write(&path, format!("content {i}")).expect("write file");
+        let path = dir.path().join(format!("file_{:03}.txt", i));
+        fs::write(&path, format!("content {}", i)).expect("write file");
     }
 
     let corpus = MmapCorpus::open(dir.path()).expect("open corpus");
@@ -331,11 +329,12 @@ fn mmap_corpus_many_small_files() {
     for (path, content) in corpus.iter() {
         let filename = path.file_stem().unwrap().to_str().unwrap();
         let num: usize = filename.strip_prefix("file_").unwrap().parse().unwrap();
-        let expected = format!("content {num}");
+        let expected = format!("content {}", num);
         assert_eq!(
             content,
             expected.as_bytes(),
-            "content mismatch for {filename}"
+            "content mismatch for {}",
+            filename
         );
     }
 }
@@ -379,7 +378,8 @@ fn mmap_error_messages_are_actionable() {
     assert!(!msg.is_empty(), "Error message must not be empty");
     assert!(
         msg.len() > 10,
-        "Error message should be descriptive (got: {msg})"
+        "Error message should be descriptive (got: {})",
+        msg
     );
 }
 
@@ -417,7 +417,8 @@ fn all_error_variants_display_correctly() {
         assert!(!msg.is_empty(), "Error message must not be empty");
         assert!(
             msg.len() > 5,
-            "Error message should be descriptive: {error:?}"
+            "Error message should be descriptive: {:?}",
+            error
         );
     }
 }

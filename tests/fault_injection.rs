@@ -3,7 +3,6 @@
 //! These tests verify that kernelkit handles IO failures gracefully
 //! when mmap/read operations fail.
 
-#![allow(clippy::single_match)]
 #![allow(clippy::unwrap_used)]
 
 use std::fs;
