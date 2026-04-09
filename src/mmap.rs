@@ -27,7 +27,10 @@ impl MmapBlock {
         }
 
         let ptr = map_region(len)?;
-        advise_hugepage(ptr, len)?;
+        if let Err(error) = advise_hugepage(ptr, len) {
+            unmap_region(ptr, len);
+            return Err(error);
+        }
 
         Ok(Self {
             ptr,
@@ -47,7 +50,10 @@ impl MmapBlock {
         }
 
         let ptr = map_region(len)?;
-        advise_hugepage(ptr, len)?;
+        if let Err(error) = advise_hugepage(ptr, len) {
+            unmap_region(ptr, len);
+            return Err(error);
+        }
 
         #[cfg(target_os = "linux")]
         {
@@ -375,11 +381,16 @@ pub fn open_with_advice(
             MmapAdvice::Random => libc::MADV_RANDOM,
             MmapAdvice::WillNeed => libc::MADV_WILLNEED,
         };
+        let operation = match advice {
+            MmapAdvice::Sequential => "madvise(SEQUENTIAL)",
+            MmapAdvice::Random => "madvise(RANDOM)",
+            MmapAdvice::WillNeed => "madvise(WILLNEED)",
+        };
         // SAFETY: pointer and length come from a valid mmap region.
         let advice_result = unsafe { libc::madvise(ptr, len, madvise_flag) };
         if advice_result != 0 {
             return Err(Error::System {
-                operation: "madvise(file_advice)",
+                operation,
                 source: std::io::Error::last_os_error(),
             });
         }

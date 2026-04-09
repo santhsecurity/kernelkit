@@ -12,22 +12,17 @@
 //! - mmap region read after munmap
 //! - 24+ other extreme condition tests
 
-<<<<<<< ours
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
     clippy::single_match
 )]
-=======
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
->>>>>>> theirs
 
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::FileExt;
 use std::os::unix::io::AsRawFd;
-<<<<<<< ours
 use std::ptr;
 use std::sync::Arc;
 use std::thread;
@@ -35,15 +30,6 @@ use std::thread;
 use kernelkit::{
     Error, HugePageVec, MmapBlock, MmapCorpus, binformat, cpu_features, memory_pressure, mlock,
     mmap, numa, prefetch, readahead,
-=======
-use std::sync::Arc;
-use std::thread;
-use std::ptr;
-
-use kernelkit::{
-    HugePageVec, MmapBlock, MmapCorpus, binformat, cpu_features, memory_pressure, mlock, mmap,
-    numa, prefetch, readahead, Error
->>>>>>> theirs
 };
 use tempfile::NamedTempFile;
 
@@ -66,15 +52,9 @@ fn test_impossible_mmap_4tb_virtual() {
     let file = NamedTempFile::new().unwrap();
     // We can't easily create a 4TB file on a test runner without exhausting disk space,
     // but we CAN create a sparse file.
-<<<<<<< ours
     file.as_file()
         .set_len(4 * 1024 * 1024 * 1024 * 1024)
         .unwrap();
-
-=======
-    file.as_file().set_len(4 * 1024 * 1024 * 1024 * 1024).unwrap();
-    
->>>>>>> theirs
     let result = mmap::open_read(file.path());
     // It will likely fail with ENOMEM if strict overcommit is enabled, but it should not crash.
     match result {
@@ -85,14 +65,10 @@ fn test_impossible_mmap_4tb_virtual() {
         }
         Err(e) => {
             let msg = e.to_string();
-<<<<<<< ours
             assert!(
                 msg.contains("mmap") || msg.contains("Cannot allocate memory"),
                 "Err: {msg}"
             );
-=======
-            assert!(msg.contains("mmap") || msg.contains("Cannot allocate memory"), "Err: {}", msg);
->>>>>>> theirs
         }
     }
 }
@@ -102,21 +78,9 @@ fn test_impossible_mmap_4tb_virtual() {
 fn test_impossible_mmap_then_truncate() {
     let file = NamedTempFile::new().unwrap();
     file.as_file().set_len(1024 * 1024).unwrap();
-<<<<<<< ours
-
     let m = mmap::open_read(file.path()).unwrap();
-
     // Truncate underneath
     file.as_file().set_len(0).unwrap();
-
-=======
-    
-    let m = mmap::open_read(file.path()).unwrap();
-    
-    // Truncate underneath
-    file.as_file().set_len(0).unwrap();
-    
->>>>>>> theirs
     // The mapping still exists, but reading beyond new EOF usually causes SIGBUS.
     // Testing SIGBUS in Rust tests is tricky without custom signal handlers.
     // The OS guarantees that `open_read` won't crash *during* the call or the truncate itself.
@@ -130,17 +94,8 @@ fn test_impossible_concurrent_mmap_16_threads() {
     let file = NamedTempFile::new().unwrap();
     file.as_file().set_len(4096).unwrap();
     file.as_file().write_at(b"TEST", 0).unwrap();
-<<<<<<< ours
-
     let path = Arc::new(file.path().to_path_buf());
     let mut handles = vec![];
-
-=======
-    
-    let path = Arc::new(file.path().to_path_buf());
-    let mut handles = vec![];
-    
->>>>>>> theirs
     for _ in 0..16 {
         let p = path.clone();
         handles.push(thread::spawn(move || {
@@ -148,11 +103,6 @@ fn test_impossible_concurrent_mmap_16_threads() {
             assert_eq!(&m[0..4], b"TEST");
         }));
     }
-<<<<<<< ours
-
-=======
-    
->>>>>>> theirs
     for h in handles {
         h.join().unwrap();
     }
@@ -161,30 +111,19 @@ fn test_impossible_concurrent_mmap_16_threads() {
 // 5. readahead on closed fd
 #[test]
 fn test_impossible_readahead_on_closed_fd() {
-<<<<<<< ours
     struct ClosedFd(i32);
     impl std::os::fd::AsRawFd for ClosedFd {
         fn as_raw_fd(&self) -> i32 {
             self.0
         }
     }
-
-=======
->>>>>>> theirs
     let fd = {
         let file = NamedTempFile::new().unwrap();
         file.as_raw_fd()
         // file dropped here, closing fd
     };
-<<<<<<< ours
-
     // Readahead should error gracefully
     let result = readahead::readahead(&ClosedFd(fd), 0, 4096);
-=======
-    
-    // Readahead should error gracefully
-    let result = readahead::readahead(&fd, 0, 4096);
->>>>>>> theirs
     assert!(result.is_err(), "readahead on closed fd should fail");
 }
 
@@ -194,19 +133,8 @@ fn test_impossible_mmap_then_unlink() {
     let temp_dir = tempfile::tempdir().unwrap();
     let path = temp_dir.path().join("unlink_test.txt");
     fs::write(&path, b"unlink test data").unwrap();
-<<<<<<< ours
-
     let m = mmap::open_read(&path).unwrap();
-
     fs::remove_file(&path).unwrap();
-
-=======
-    
-    let m = mmap::open_read(&path).unwrap();
-    
-    fs::remove_file(&path).unwrap();
-    
->>>>>>> theirs
     // The mapping must still be valid and readable
     assert_eq!(&m[..], b"unlink test data");
 }
@@ -217,25 +145,14 @@ fn test_impossible_mmap_then_unlink() {
 fn test_impossible_mmap_non_page_aligned_offset() {
     let file = NamedTempFile::new().unwrap();
     file.as_file().write_all(b"123456789").unwrap();
-<<<<<<< ours
-
     // Attempting to use memmap2 directly with non-page aligned offset
     let result = unsafe { memmap2::MmapOptions::new().offset(1).map(file.as_file()) };
 
-    // On some platforms non-page aligned offsets fail; on others they succeed.
-    // Either outcome is acceptable as long as it doesn't crash.
-    let _ = result;
-=======
-    
-    // Attempting to use memmap2 directly with non-page aligned offset
-    let result = unsafe { memmap2::MmapOptions::new().offset(1).map(file.as_file()) };
-    
     // Some OS round up, some error. Either way it shouldn't crash.
     match result {
         Ok(_) => {},
         Err(_) => {},
     }
->>>>>>> theirs
 }
 
 // 8. huge page allocation on system without hugepages (graceful fallback)
@@ -257,16 +174,9 @@ fn test_impossible_read_after_munmap() {
     // The borrow checker prevents us from getting a reference and then dropping.
     // If we use raw pointers, it's our own unsafe UB.
     // But we test that dropping MmapBlock prevents access via safe methods.
-    let block = MmapBlock::new(4096).unwrap();
+    let mut block = MmapBlock::new(4096).unwrap();
     let ptr = block.as_mut_ptr();
     drop(block); // unmapped
-<<<<<<< ours
-
-    // Since kernelkit's `MmapBlock` only exposes `as_mut_ptr()` which is unsafe to deref,
-=======
-    
-    // Since kernelkit's `MmapBlock` only exposes `as_mut_ptr()` which is unsafe to deref, 
->>>>>>> theirs
     // it's not UB in safe Rust, because there is no safe way to read it.
     // The contract of `MmapBlock` puts synchronization and safety on the caller.
     // We confirm `MmapBlock` implements Drop that calls unmap_region, preventing safe use.
@@ -284,11 +194,7 @@ fn test_impossible_mmap_block_usize_max() {
 #[test]
 fn test_impossible_mlock_zero_length_non_null() {
     let mut data = 42u8;
-<<<<<<< ours
     let result = mlock::lock_region(&raw mut data, 0);
-=======
-    let result = mlock::lock_region(&mut data as *mut _, 0);
->>>>>>> theirs
     assert!(result.is_ok());
 }
 
@@ -298,21 +204,14 @@ fn test_impossible_mlock_exceeding_rlimit() {
     let data = vec![0u8; 1024 * 1024 * 1024]; // 1GB
     let result = mlock::lock_region(data.as_ptr(), data.len());
     // May succeed if root, otherwise fail with ENOMEM
-<<<<<<< ours
     if let Ok(()) = result {
         let _ = mlock::unlock_region(data.as_ptr(), data.len());
-=======
-    match result {
-        Ok(_) => { let _ = mlock::unlock_region(data.as_ptr(), data.len()); },
-        Err(_) => {}
->>>>>>> theirs
     }
 }
 
 // 13. binformat unsupported version 255
 #[test]
 fn test_impossible_binformat_unsupported_version() {
-<<<<<<< ours
     let mut bytes = b"TEST".to_vec();
     bytes.extend_from_slice(&255u64.to_le_bytes());
     let result = binformat::FileHeader::read_from(&bytes, b"TEST", 1);
@@ -323,11 +222,6 @@ fn test_impossible_binformat_unsupported_version() {
             max_version: 1
         })
     ));
-=======
-    let bytes = b"TEST\xff\x00\x00\x00\x00\x00\x00\x00";
-    let result = binformat::FileHeader::read_from(bytes, b"TEST", 1);
-    assert!(matches!(result, Err(Error::UnsupportedVersion { version: 255, max_version: 1 })));
->>>>>>> theirs
 }
 
 // 14. binformat negative/overflow section size
@@ -336,11 +230,6 @@ fn test_impossible_binformat_overflow_size() {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&u64::MAX.to_le_bytes());
     bytes.extend_from_slice(b"test");
-<<<<<<< ours
-
-=======
-    
->>>>>>> theirs
     let result = binformat::read_section(&bytes);
     assert!(result.is_err());
 }
@@ -425,14 +314,8 @@ fn test_impossible_mmap_changing_file_size() {
 
 // 25. hugepage vec zst stress
 #[test]
-<<<<<<< ours
 fn test_impossible_hugepage_vec_zst_stress() {
     let count = 1_000_000_000;
-=======
-#[ignore = "GAP: timeout during scale test"]
-fn test_impossible_hugepage_vec_zst_stress() {
-    let count = usize::MAX / 2;
->>>>>>> theirs
     let vec = HugePageVec::<()>::new(count);
     assert_eq!(vec.len(), count);
 }
@@ -455,12 +338,7 @@ fn test_impossible_binformat_1_byte() {
 #[test]
 fn test_impossible_readahead_overflow() {
     let file = NamedTempFile::new().unwrap();
-<<<<<<< ours
     let result = readahead::readahead(&file, u64::MAX, usize::MAX);
-=======
-    let fd = file.as_raw_fd();
-    let result = readahead::readahead(&fd, u64::MAX, usize::MAX);
->>>>>>> theirs
     assert!(result.is_err());
 }
 
@@ -478,14 +356,9 @@ fn test_impossible_open_read_exact_zero() {
     let file = NamedTempFile::new().unwrap();
     let result = mmap::open_read_with_size(file.path(), 0);
     // Either OK and empty, or Error. Both are valid, but no crash.
-<<<<<<< ours
-    if let Ok(m) = result {
-        assert_eq!(m.len(), 0);
-=======
     match result {
         Ok(m) => assert_eq!(m.len(), 0),
         Err(_) => {}
->>>>>>> theirs
     }
 }
 
@@ -502,12 +375,7 @@ fn test_impossible_prefetch_read_null() {
 #[test]
 fn test_impossible_readahead_negative_offset() {
     let file = NamedTempFile::new().unwrap();
-<<<<<<< ours
     let result = readahead::readahead(&file, u64::MAX, 4096);
-=======
-    let fd = file.as_raw_fd();
-    let result = readahead::readahead(&fd, u64::MAX, 4096);
->>>>>>> theirs
     assert!(result.is_err());
 }
 
