@@ -281,6 +281,7 @@ impl LinuxNuma {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::{alloc_on_node, current_node, node_count, pin_to_node};
 
     #[test]

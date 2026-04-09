@@ -136,6 +136,7 @@ fn prefetch_impl(ptr: *const u8, write: bool) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::{prefetch_range, prefetch_read, prefetch_write};
 
     #[test]

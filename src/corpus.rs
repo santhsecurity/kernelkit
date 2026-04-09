@@ -193,6 +193,7 @@ fn advise_sequential(_mmap: &Mmap) {}
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::MmapCorpus;
     use std::fs;
 

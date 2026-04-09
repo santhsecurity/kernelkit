@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use kernelkit::{HugePageVec, MmapBlock};
 use proptest::prelude::*;

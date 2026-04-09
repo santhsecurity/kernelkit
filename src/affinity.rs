@@ -113,6 +113,7 @@ pub fn pin_to_numa_node(node: u32) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::{pin_to_core, pin_to_numa_node};
 
     #[test]

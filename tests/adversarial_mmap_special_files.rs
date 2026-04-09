@@ -3,6 +3,8 @@
 //! These tests verify kernelkit handles dangerous file types gracefully:
 //! - Zero-byte files (must not crash or return invalid pointer)
 //! - Files larger than available RAM (must work via OS paging)
+
+#![allow(clippy::cast_possible_truncation, clippy::manual_let_else)]
 //! - Permission denied (must return error, not panic)
 //! - Special files (/dev/zero, /proc/self/maps, etc.)
 //!
@@ -60,7 +62,7 @@ fn mmap_zero_byte_file_is_safe() {
     }
 }
 
-/// CRITICAL: MmapBlock with 0 bytes must fail gracefully, not panic.
+/// CRITICAL: `MmapBlock` with 0 bytes must fail gracefully, not panic.
 #[test]
 fn mmap_block_zero_bytes_fails_gracefully() {
     let result = MmapBlock::new(0);
@@ -78,7 +80,7 @@ fn mmap_block_zero_bytes_fails_gracefully() {
     );
 }
 
-/// CRITICAL: open_read_with_size with expected_size=0 must handle gracefully.
+/// CRITICAL: `open_read_with_size` with `expected_size=0` must handle gracefully.
 #[test]
 fn mmap_open_read_with_size_zero_handles_gracefully() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -137,7 +139,7 @@ fn mmap_large_file_succeeds() {
     assert_eq!(mmap[size / 2], 0xAB, "middle byte must match");
 }
 
-/// CRITICAL: open_read_with_size must verify size matches for large files.
+/// CRITICAL: `open_read_with_size` must verify size matches for large files.
 #[test]
 fn mmap_large_file_size_mismatch_fails() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -443,7 +445,7 @@ fn mmap_concurrent_access_is_safe() {
     for i in 0..10 {
         let path = Arc::clone(&path);
         handles.push(thread::spawn(move || {
-            let mmap = mmap::open_read(&*path).expect(&format!("thread {} mmap", i));
+            let mmap = mmap::open_read(&*path).unwrap_or_else(|_| panic!("thread {i} mmap"));
             assert_eq!(&mmap[..], b"concurrent test data");
         }));
     }
@@ -457,7 +459,7 @@ fn mmap_concurrent_access_is_safe() {
 // 6. FILE TYPE VALIDATION TESTS
 // =============================================================================
 
-/// CRITICAL: MmapCorpus must reject symlinks to prevent directory traversal.
+/// CRITICAL: `MmapCorpus` must reject symlinks to prevent directory traversal.
 #[test]
 fn mmap_corpus_rejects_symlinks() {
     use kernelkit::MmapCorpus;
@@ -481,7 +483,7 @@ fn mmap_corpus_rejects_symlinks() {
     }
 }
 
-/// CRITICAL: MmapCorpus must handle files of various sizes correctly.
+/// CRITICAL: `MmapCorpus` must handle files of various sizes correctly.
 #[test]
 fn mmap_corpus_mixed_file_sizes() {
     use kernelkit::MmapCorpus;
@@ -511,7 +513,7 @@ fn mmap_corpus_mixed_file_sizes() {
     assert!(found_sizes.contains(&65536), "should have 64KB file");
 }
 
-/// CRITICAL: MmapCorpus must enforce file size limits.
+/// CRITICAL: `MmapCorpus` must enforce file size limits.
 #[test]
 fn mmap_corpus_enforces_size_limits() {
     use kernelkit::MmapCorpus;

@@ -1,4 +1,10 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unnecessary_wraps,
+    missing_docs
+)]
 
 use kernelkit::readahead::readahead;
 use kernelkit::{HugePageVec, MmapBlock, MmapCorpus};

@@ -62,6 +62,7 @@ fn region_call(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::{lock_region, unlock_region};
 
     #[test]

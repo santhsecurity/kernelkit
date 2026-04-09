@@ -145,6 +145,7 @@ pub fn memory_pressure() -> crate::Result<MemoryStatus> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
 
     #[test]
@@ -193,7 +194,7 @@ mod tests {
             .unwrap_or_default();
 
         assert_eq!(mem_total_kib, Some(1024));
-        assert_eq!(available_kib, Some(190).unwrap_or_default());
+        assert_eq!(available_kib, 190);
         assert_eq!(
             MemoryStatus::kib_to_bytes(available_kib),
             190 * KIB_TO_BYTES

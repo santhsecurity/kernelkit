@@ -236,10 +236,7 @@ pub fn open_read(path: impl AsRef<std::path::Path>) -> Result<memmap2::Mmap> {
     if faultkit::should_fail_mmap() {
         return Err(crate::Error::System {
             operation: "mmap",
-            source: std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "faultkit: injected mmap failure",
-            ),
+            source: std::io::Error::other("faultkit: injected mmap failure"),
         });
     }
 
@@ -260,10 +257,7 @@ pub fn open_read_with_size(
     if faultkit::should_fail_mmap() {
         return Err(crate::Error::System {
             operation: "mmap",
-            source: std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "faultkit: injected mmap failure",
-            ),
+            source: std::io::Error::other("faultkit: injected mmap failure"),
         });
     }
 
@@ -353,6 +347,7 @@ pub fn release(mmap: memmap2::Mmap) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::{MmapBlock, open_read, open_read_with_size};
     use std::io::Write;
 
