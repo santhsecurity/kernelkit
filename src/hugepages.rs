@@ -135,7 +135,7 @@ impl<T: Default> HugePageVec<T> {
     /// When huge-page allocation is not available, the function falls back to a
     /// normal `Vec<T>`.
     ///
-    /// Note: Will panic if the allocation exceeds system bounds. Use `new_fallible`
+    /// Note: Will panic if the allocation exceeds system bounds. Use `try_new`
     /// for strict OOM prevention.
     #[must_use]
     pub fn new(count: usize) -> Self {
@@ -158,6 +158,45 @@ impl<T: Default> HugePageVec<T> {
         Self {
             backing: Backing::Standard(values),
         }
+    }
+
+    /// Allocate `count` initialized elements without panicking.
+    ///
+    /// Prefer this over [`HugePageVec::new`] when OOM must be handled
+    /// gracefully rather than aborting the process.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::AllocationFailed`] if neither huge pages nor the
+    /// standard allocator can satisfy the request.
+    pub fn try_new(count: usize) -> Result<Self> {
+        #[cfg(target_os = "linux")]
+        if let Ok(Some(allocation)) = HugeAllocation::new(count) {
+            return Ok(Self {
+                backing: Backing::Huge(allocation),
+            });
+        }
+
+        let mut values = Vec::new();
+        if values.try_reserve(count).is_err() {
+            return Err(Error::AllocationFailed {
+                count,
+                type_name: std::any::type_name::<T>(),
+            });
+        }
+        values.resize_with(count, T::default);
+
+        // Fallback: hint the kernel to use transparent huge pages (THP).
+        // This is advisory — fails silently on kernels without THP support.
+        #[cfg(target_os = "linux")]
+        if !values.is_empty() {
+            let ptr = values.as_ptr().cast::<libc::c_void>().cast_mut();
+            let byte_len = values.len() * mem::size_of::<T>();
+            let _ = unsafe { libc::madvise(ptr, byte_len, libc::MADV_HUGEPAGE) };
+        }
+        Ok(Self {
+            backing: Backing::Standard(values),
+        })
     }
 }
 
@@ -216,7 +255,7 @@ impl<T> HugeAllocation<T> {
             return Ok(None);
         }
 
-        if (raw_ptr as usize) % mem::align_of::<T>() != 0 {
+        if !((raw_ptr as usize).is_multiple_of(mem::align_of::<T>())) {
             unsafe {
                 libc::munmap(raw_ptr, map_len);
             }
@@ -356,5 +395,22 @@ mod tests {
         // Zero-sized types should use standard Vec fallback
         let values = HugePageVec::<()>::new(100);
         assert_eq!(values.len(), 100);
+    }
+
+    #[test]
+    fn huge_page_vec_try_new_succeeds_for_small_count() {
+        let values = HugePageVec::<u64>::try_new(256).expect("try_new should succeed");
+        assert_eq!(values.len(), 256);
+        assert_eq!(values.as_slice()[0], 0);
+    }
+
+    #[test]
+    fn huge_page_vec_try_new_returns_allocation_failed_on_gigantic_count() {
+        // Request more elements than the address space can hold.
+        let result = HugePageVec::<u64>::try_new(usize::MAX);
+        assert!(
+            matches!(result, Err(crate::Error::AllocationFailed { .. })),
+            "expected AllocationFailed"
+        );
     }
 }

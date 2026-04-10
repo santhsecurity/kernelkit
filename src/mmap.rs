@@ -241,6 +241,12 @@ pub enum MmapAdvice {
 /// Open a file as a read-only memory map with optimal kernel hints.
 ///
 /// Automatically applies `MADV_SEQUENTIAL` + `MADV_HUGEPAGE` on Linux.
+/// Uses `MAP_POPULATE` to prefault pages while the file is still open,
+/// which reduces the risk of SIGBUS if the file is truncated after mapping.
+///
+/// **SIGBUS risk:** If the backing file is truncated after mapping,
+/// accessing the corresponding pages can still raise SIGBUS.
+/// Fix: ensure files are immutable or locked while mapped.
 ///
 /// # Errors
 ///
@@ -268,6 +274,13 @@ pub fn open_read(path: impl AsRef<std::path::Path>) -> Result<memmap2::Mmap> {
 }
 
 /// Open a file as a read-only map after validating its on-disk size.
+///
+/// Uses `MAP_POPULATE` to prefault pages while the file is still open,
+/// which reduces the risk of SIGBUS if the file is truncated after mapping.
+///
+/// **SIGBUS risk:** If the backing file is truncated after mapping,
+/// accessing the corresponding pages can still raise SIGBUS.
+/// Fix: ensure files are immutable or locked while mapped.
 ///
 /// # Errors
 ///
@@ -311,7 +324,7 @@ pub fn open_read_with_size(
     }
 
     let mmap =
-        unsafe { memmap2::MmapOptions::new().map(&file) }.map_err(|source| Error::System {
+        unsafe { memmap2::MmapOptions::new().populate().map(&file) }.map_err(|source| Error::System {
             operation: "mmap",
             source,
         })?;
@@ -345,6 +358,13 @@ pub fn open_read_with_size(
 
 /// Open a file as a read-only memory map with explicit advice.
 ///
+/// Uses `MAP_POPULATE` to prefault pages while the file is still open,
+/// which reduces the risk of SIGBUS if the file is truncated after mapping.
+///
+/// **SIGBUS risk:** If the backing file is truncated after mapping,
+/// accessing the corresponding pages can still raise SIGBUS.
+/// Fix: ensure files are immutable or locked while mapped.
+///
 /// # Errors
 ///
 /// Returns an error if the file cannot be opened or mapped.
@@ -362,7 +382,7 @@ pub fn open_with_advice(
     })?;
     let expected_identity = FileIdentity::from_metadata(&expected_identity);
     let mmap =
-        unsafe { memmap2::MmapOptions::new().map(&file) }.map_err(|source| Error::System {
+        unsafe { memmap2::MmapOptions::new().populate().map(&file) }.map_err(|source| Error::System {
             operation: "mmap",
             source,
         })?;
@@ -432,11 +452,11 @@ impl FileIdentity {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            return Self {
+            Self {
                 len: metadata.len(),
                 dev: metadata.dev(),
                 ino: metadata.ino(),
-            };
+            }
         }
         #[cfg(not(unix))]
         {

@@ -92,6 +92,16 @@ pub enum Error {
         /// Rust type name for the allocation target.
         type_name: &'static str,
     },
+    /// The operating system could not satisfy the allocation request.
+    #[error(
+        "allocation failed for {count} values of `{type_name}`. Fix: reduce the element count, enable huge pages, or free system memory."
+    )]
+    AllocationFailed {
+        /// Number of requested elements.
+        count: usize,
+        /// Rust type name for the allocation target.
+        type_name: &'static str,
+    },
     /// The caller supplied a null pointer for a non-zero region length.
     #[error(
         "pointer was null for a non-zero region length. Fix: pass a valid pointer or use length 0."

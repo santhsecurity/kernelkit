@@ -72,7 +72,12 @@ pub fn alloc_on_node<T: Default>(count: usize, node: u32) -> Result<Vec<T>> {
     validate_node(node)?;
     checked_len::<T>(count)?;
 
-    let mut values: Vec<T> = std::iter::repeat_with(T::default).take(count).collect();
+    let mut values = Vec::new();
+    values.try_reserve(count).map_err(|e| crate::Error::System {
+        operation: "numa alloc try_reserve",
+        source: std::io::Error::other(format!("{e}")),
+    })?;
+    values.resize_with(count, T::default);
 
     #[cfg(target_os = "linux")]
     {

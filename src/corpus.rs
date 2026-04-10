@@ -21,11 +21,11 @@ impl FileIdentity {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            return Self {
+            Self {
                 len: metadata.len(),
                 dev: metadata.dev(),
                 ino: metadata.ino(),
-            };
+            }
         }
         #[cfg(not(unix))]
         {
@@ -59,7 +59,12 @@ impl MmapCorpus {
     /// Limits individual files to 1GB and the total corpus to 10GB.
     /// Use [`MmapCorpus::open_with_limits`] for custom limits.
     ///
-    /// Linux applies `MADV_SEQUENTIAL` and `MADV_HUGEPAGE` to each mapping.
+    /// Linux applies `MADV_SEQUENTIAL` and `MADV_HUGEPAGE` to each mapping,
+    /// and `MAP_POPULATE` is used to prefault pages while files are still open.
+    ///
+    /// **SIGBUS risk:** If a backing file is truncated after mapping,
+    /// accessing its pages can raise SIGBUS.
+    /// Fix: run corpus mapping on immutable input files or lock writers.
     /// # Errors
     /// Returns an error if reading the directory fails.
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
@@ -71,6 +76,12 @@ impl MmapCorpus {
     /// # Limits
     /// * `max_file_bytes`: The maximum size of a single file in the corpus.
     /// * `max_total_bytes`: The maximum combined size of all mapped files.
+    ///
+    /// `MAP_POPULATE` is used to prefault pages while files are still open.
+    ///
+    /// **SIGBUS risk:** If a backing file is truncated after mapping,
+    /// accessing its pages can raise SIGBUS.
+    /// Fix: run corpus mapping on immutable input files or lock writers.
     /// # Errors
     /// Returns an error if reading the directory fails.
     pub fn open_with_limits(
@@ -120,7 +131,7 @@ impl MmapCorpus {
             }
 
             // SAFETY: mapping remains tied to the returned `Mmap`.
-            let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.map_err(|source| {
+            let mmap = unsafe { memmap2::MmapOptions::new().populate().map(&file) }.map_err(|source| {
                 Error::System {
                     operation: "mmap",
                     source,
