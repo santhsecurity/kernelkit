@@ -16,3 +16,9 @@ kernelkit = { path = ".." }
 name = "fuzz_binformat"
 path = "fuzz_targets/fuzz_binformat.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_file_header"
+path = "fuzz_targets/fuzz_file_header.rs"
+test = false
+doc = false
