@@ -1,5 +1,7 @@
 # kernelkit
 
+Part of [Santh](https://santh.dev) - open source Rust security and infrastructure tooling. Follow [@SanthProject](https://x.com/SanthProject) on X.
+
 Cross-platform kernel optimization toolkit with Linux fast paths and safe fallbacks.
 
 ## Quick Start
