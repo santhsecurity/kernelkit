@@ -108,23 +108,46 @@ fn test_impossible_concurrent_mmap_16_threads() {
     }
 }
 
-// 5. readahead on closed fd
+// 5. readahead on an invalid file descriptor must surface an error, not
+//    silently succeed.
+//
+// The original version closed a NamedTempFile and asserted the now-dead fd
+// NUMBER errored. That is not a reliable invariant: `cargo test` runs test
+// functions on parallel threads in one process, so another thread can recycle
+// the freed fd number (making it a valid, different file) between the close and
+// the readahead call, and some kernels return success for readahead on an
+// unknown fd. Either way `is_err()` becomes environment-dependent.
+//
+// fd -1 is ALWAYS rejected by the kernel with EBADF and can never be recycled,
+// so it tests the real contract ("an invalid fd is surfaced, not swallowed")
+// deterministically. On non-Linux, readahead is a documented no-op that returns
+// Ok, so the syscall-error contract only applies on Linux.
+#[cfg(target_os = "linux")]
 #[test]
-fn test_impossible_readahead_on_closed_fd() {
-    struct ClosedFd(i32);
-    impl std::os::fd::AsRawFd for ClosedFd {
+fn test_impossible_readahead_on_invalid_fd() {
+    struct InvalidFd(i32);
+    impl std::os::fd::AsRawFd for InvalidFd {
         fn as_raw_fd(&self) -> i32 {
             self.0
         }
     }
-    let fd = {
-        let file = NamedTempFile::new().unwrap();
-        file.as_raw_fd()
-        // file dropped here, closing fd
-    };
-    // Readahead should error gracefully
-    let result = readahead::readahead(&ClosedFd(fd), 0, 4096);
-    assert!(result.is_err(), "readahead on closed fd should fail");
+
+    let result = readahead::readahead(&InvalidFd(-1), 0, 4096);
+    let err = result.expect_err("readahead on fd -1 must fail, not silently succeed");
+
+    // Prove the failure is specifically the bad-fd rejection (EBADF), not some
+    // unrelated error, so the test cannot pass for the wrong reason.
+    match err {
+        Error::System { operation, source } => {
+            assert_eq!(operation, "readahead", "error must come from readahead");
+            assert_eq!(
+                source.raw_os_error(),
+                Some(libc::EBADF),
+                "invalid fd must surface as EBADF, got {source:?}"
+            );
+        }
+        other => panic!("expected Error::System from readahead(-1), got {other:?}"),
+    }
 }
 
 // 6. mmap then unlink file (should still work)
@@ -335,6 +358,7 @@ fn test_impossible_binformat_1_byte() {
 }
 
 // 28. readahead size overflow
+#[cfg(target_os = "linux")]
 #[test]
 fn test_impossible_readahead_overflow() {
     let file = NamedTempFile::new().unwrap();
@@ -372,6 +396,7 @@ fn test_impossible_prefetch_read_null() {
 }
 
 // 33. readahead negative offset
+#[cfg(target_os = "linux")]
 #[test]
 fn test_impossible_readahead_negative_offset() {
     let file = NamedTempFile::new().unwrap();

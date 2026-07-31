@@ -118,7 +118,7 @@ impl<T: Default> HugePageVec<T> {
         values.resize_with(count, T::default);
 
         // Fallback: hint the kernel to use transparent huge pages (THP).
-        // This is advisory — fails silently on kernels without THP support.
+        // This is advisory (fails silently on kernels without THP support).
         #[cfg(target_os = "linux")]
         if !values.is_empty() {
             let ptr = values.as_ptr().cast::<libc::c_void>().cast_mut();
@@ -148,7 +148,7 @@ impl<T: Default> HugePageVec<T> {
 
         let values: Vec<T> = std::iter::repeat_with(T::default).take(count).collect();
         // Fallback: hint the kernel to use transparent huge pages (THP).
-        // This is advisory — fails silently on kernels without THP support.
+        // This is advisory (fails silently on kernels without THP support).
         #[cfg(target_os = "linux")]
         if !values.is_empty() {
             let ptr = values.as_ptr().cast::<libc::c_void>().cast_mut();
@@ -187,7 +187,7 @@ impl<T: Default> HugePageVec<T> {
         values.resize_with(count, T::default);
 
         // Fallback: hint the kernel to use transparent huge pages (THP).
-        // This is advisory — fails silently on kernels without THP support.
+        // This is advisory (fails silently on kernels without THP support).
         #[cfg(target_os = "linux")]
         if !values.is_empty() {
             let ptr = values.as_ptr().cast::<libc::c_void>().cast_mut();
@@ -375,11 +375,11 @@ mod tests {
     #[test]
     fn huge_page_vec_write_read_roundtrip() {
         let mut values = HugePageVec::<u32>::new(256);
-        for i in 0..256 {
-            values.as_mut_slice()[i] = i as u32 * 7;
+        for (i, slot) in values.as_mut_slice().iter_mut().enumerate() {
+            *slot = u32::try_from(i).expect("index fits in u32") * 7;
         }
-        for i in 0..256 {
-            assert_eq!(values.as_slice()[i], i as u32 * 7);
+        for (i, slot) in values.as_slice().iter().enumerate() {
+            assert_eq!(*slot, u32::try_from(i).expect("index fits in u32") * 7);
         }
     }
 

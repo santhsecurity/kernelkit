@@ -194,10 +194,10 @@ Test Suite                          | Status | Count
 Library unit tests                  | ✅ PASS | 57
 Integration tests                   | ✅ PASS | 11
 Fault injection tests               | ✅ PASS | 7
-Legendary adversarial tests         | ✅ PASS | 10
-Legendary gap tests                 | ✅ PASS | 5
-Legendary property tests            | ✅ PASS | 8
-Legendary unit tests                | ✅ PASS | 7
+Oneshot adversarial tests         | ✅ PASS | 10
+Oneshot gap tests                 | ✅ PASS | 5
+Oneshot property tests            | ✅ PASS | 8
+Oneshot unit tests                | ✅ PASS | 7
 Adversarial special files (new)     | ✅ PASS | 17
 Adversarial edge cases (new)        | ✅ PASS | 17
 Doc tests                           | ✅ PASS | 16

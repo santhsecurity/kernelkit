@@ -1,8 +1,9 @@
 //! Cache prefetch helpers.
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use core::arch::x86_64::{_MM_HINT_T0, _MM_HINT_T1, _mm_prefetch};
-
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::{_MM_HINT_T0, _MM_HINT_T1, _MM_HINT_NTA, _mm_prefetch};
+#[cfg(target_arch = "x86")]
+use core::arch::x86::{_MM_HINT_T0, _MM_HINT_T1, _MM_HINT_NTA, _mm_prefetch};
 /// Prefetch a pointer for an anticipated read.
 ///
 /// # Example
@@ -48,7 +49,7 @@ pub fn prefetch_nontemporal<T>(ptr: *const T) {
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     unsafe {
-        _mm_prefetch(ptr.cast::<i8>(), core::arch::x86_64::_MM_HINT_NTA);
+        _mm_prefetch(ptr.cast::<i8>(), _MM_HINT_NTA);
     }
 
     #[cfg(target_arch = "aarch64")]

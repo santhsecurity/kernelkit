@@ -6,7 +6,7 @@ use std::error::Error;
 use std::fs;
 
 #[test]
-fn test_legendary_unit_hugepagevec() -> Result<(), Box<dyn Error>> {
+fn test_depth_unit_hugepagevec() -> Result<(), Box<dyn Error>> {
     let mut vec = HugePageVec::<u8>::new(10);
     assert_eq!(vec.len(), 10);
     assert!(!vec.is_empty());
@@ -16,7 +16,7 @@ fn test_legendary_unit_hugepagevec() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn test_legendary_unit_mmapblock() -> Result<(), Box<dyn Error>> {
+fn test_depth_unit_mmapblock() -> Result<(), Box<dyn Error>> {
     let mut block = MmapBlock::new(4096)?;
     assert_eq!(block.len(), 4096);
     assert!(!block.is_empty());
@@ -31,7 +31,7 @@ fn test_legendary_unit_mmapblock() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn test_legendary_unit_mmapcorpus() -> Result<(), Box<dyn Error>> {
+fn test_depth_unit_mmapcorpus() -> Result<(), Box<dyn Error>> {
     let dir = tempfile::tempdir()?;
     fs::write(dir.path().join("test.txt"), b"hello corpus")?;
     let corpus = MmapCorpus::open(dir.path())?;
@@ -43,7 +43,7 @@ fn test_legendary_unit_mmapcorpus() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn test_legendary_unit_readahead() -> Result<(), Box<dyn Error>> {
+fn test_depth_unit_readahead() -> Result<(), Box<dyn Error>> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("test.txt");
     fs::write(&path, b"readahead data")?;
@@ -57,7 +57,7 @@ use std::sync::Arc;
 use std::thread;
 
 #[test]
-fn test_legendary_unit_concurrent_hugepagevec() -> Result<(), Box<dyn Error>> {
+fn test_depth_unit_concurrent_hugepagevec() -> Result<(), Box<dyn Error>> {
     let vec = Arc::new(kernelkit::HugePageVec::<u32>::new(100));
     let mut handles = vec![];
     for _ in 0..32 {
@@ -79,7 +79,7 @@ fn test_legendary_unit_concurrent_hugepagevec() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn test_legendary_unit_concurrent_mmapblock() -> Result<(), Box<dyn Error>> {
+fn test_depth_unit_concurrent_mmapblock() -> Result<(), Box<dyn Error>> {
     // 32 threads hammering MmapBlock creation and destruction
     let mut handles = vec![];
     for _ in 0..32 {
@@ -103,7 +103,7 @@ fn test_legendary_unit_concurrent_mmapblock() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn test_legendary_unit_concurrent_mmapcorpus() -> Result<(), Box<dyn Error>> {
+fn test_depth_unit_concurrent_mmapcorpus() -> Result<(), Box<dyn Error>> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("corpus_test.txt");
     fs::write(&path, b"shared corpus data")?;

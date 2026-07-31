@@ -7,34 +7,7 @@ use memmap2::Mmap;
 
 use crate::{Error, Result};
 
-#[derive(Clone, Copy)]
-struct FileIdentity {
-    len: u64,
-    #[cfg(unix)]
-    dev: u64,
-    #[cfg(unix)]
-    ino: u64,
-}
-
-impl FileIdentity {
-    fn from_metadata(metadata: &std::fs::Metadata) -> Self {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            Self {
-                len: metadata.len(),
-                dev: metadata.dev(),
-                ino: metadata.ino(),
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            Self {
-                len: metadata.len(),
-            }
-        }
-    }
-}
+use crate::file_identity::{validate_file_identity, FileIdentity};
 
 /// Memory-mapped corpus handle for large local datasets.
 #[derive(Debug)]
@@ -258,31 +231,12 @@ fn advise_sequential(_mmap: &Mmap, _path: &Path) -> Result<()> {
 }
 
 fn validate_mapping_stability(file: &File, expected: FileIdentity, expected_len: u64) -> Result<()> {
-    let metadata = file.metadata().map_err(|source| Error::System {
-        operation: "metadata(revalidate)",
-        source,
-    })?;
-    let current = FileIdentity::from_metadata(&metadata);
-    if current.len != expected_len || current.len != expected.len || !same_inode(expected, current) {
-        return Err(Error::System {
-            operation: "mmap(revalidate)",
-            source: std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "corpus file changed during mapping; Fix: run corpus mapping on immutable input",
-            ),
-        });
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn same_inode(expected: FileIdentity, current: FileIdentity) -> bool {
-    expected.dev == current.dev && expected.ino == current.ino
-}
-
-#[cfg(not(unix))]
-fn same_inode(_expected: FileIdentity, _current: FileIdentity) -> bool {
-    true
+    validate_file_identity(
+        file,
+        expected,
+        expected_len,
+        "corpus file changed during mapping; Fix: run corpus mapping on immutable input",
+    )
 }
 
 #[cfg(test)]

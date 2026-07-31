@@ -25,7 +25,7 @@ fn mmap_empty_file_succeeds() {
     fs::write(&path, "").unwrap();
 
     let result = kernelkit::mmap::open_read(&path);
-    // Empty file mmap behavior varies by OS — either succeeds with empty mmap or errors
+    // Empty file mmap behavior varies by OS, either succeeds with empty mmap or errors
     // Both are acceptable
     match result {
         Ok(mmap) => assert!(mmap.is_empty(), "empty file mmap should be empty"),

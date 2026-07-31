@@ -368,13 +368,12 @@ mod tests {
             version in any::<u64>(),
             tail in prop::collection::vec(any::<u8>(), 0..32)
         ) {
-            let leaked_magic: &'static [u8] = Box::leak(magic.into_boxed_slice());
-            let header = FileHeader { magic: leaked_magic, version };
+            let header = FileHeader { magic: magic.as_slice(), version };
             let mut bytes = Vec::new();
             header.write_to(&mut bytes).unwrap();
             bytes.extend_from_slice(&tail);
 
-            let (decoded, rest) = FileHeader::read_from(&bytes, leaked_magic, u64::MAX).unwrap();
+            let (decoded, rest) = FileHeader::read_from(&bytes, &magic, u64::MAX).unwrap();
             prop_assert_eq!(decoded, version);
             prop_assert_eq!(rest, tail.as_slice());
         }

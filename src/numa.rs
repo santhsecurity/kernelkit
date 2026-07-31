@@ -1,6 +1,8 @@
 //! NUMA-aware helpers with Linux fast paths and portable fallbacks.
 
 #[cfg(target_os = "linux")]
+use std::ptr::NonNull;
+#[cfg(target_os = "linux")]
 use std::sync::OnceLock;
 
 use crate::{Error, Result, checked_len};
@@ -57,6 +59,65 @@ pub fn pin_to_node(node: u32) -> Result<()> {
     Ok(())
 }
 
+/// Bind an existing memory region to a specific NUMA node.
+///
+/// On Linux this invokes `mbind(MPOL_BIND | MPOL_MF_MOVE)`. On other
+/// platforms it is a no-op and returns `Ok(())`.
+///
+/// # Errors
+///
+/// Returns `Error::InvalidNode` if `node` is out of range, or
+/// `Error::System` if the kernel rejects the `mbind` syscall.
+#[cfg(target_os = "linux")]
+pub fn bind_memory_to_node(ptr: NonNull<u8>, len: usize, node: u32) -> Result<()> {
+    const MPOL_BIND: libc::c_int = 2;
+    const MPOL_MF_MOVE: libc::c_uint = 1 << 1;
+
+    validate_node(node)?;
+
+    let (nodemask, maxnode) = nodemask_for_node(node);
+
+    // SAFETY: `ptr` and `len` describe a live mapping owned by the caller.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_mbind,
+            ptr.as_ptr().cast::<libc::c_void>(),
+            len,
+            MPOL_BIND,
+            nodemask.as_ptr(),
+            maxnode,
+            MPOL_MF_MOVE,
+        )
+    };
+
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(Error::System {
+            operation: "mbind",
+            source: std::io::Error::last_os_error(),
+        })
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn bind_memory_to_node(_ptr: NonNull<u8>, _len: usize, _node: u32) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn nodemask_for_node(node: u32) -> (Vec<libc::c_ulong>, usize) {
+    #[allow(clippy::cast_possible_truncation)]
+    let bits_per_ulong = (std::mem::size_of::<libc::c_ulong>() * 8) as u32;
+    let mask_index = (node / bits_per_ulong) as usize;
+    let bit_position = node % bits_per_ulong;
+    let mask_len = mask_index + 1;
+    let mut nodemask = vec![0 as libc::c_ulong; mask_len];
+    nodemask[mask_index] = (1 as libc::c_ulong) << bit_position;
+    let maxnode = (node as usize) + 1;
+    (nodemask, maxnode)
+}
+
 /// Allocate initialized values and, on Linux, migrate the backing pages toward a NUMA node.
 ///
 /// # Example
@@ -80,17 +141,60 @@ pub fn alloc_on_node<T: Default>(count: usize, node: u32) -> Result<Vec<T>> {
     values.resize_with(count, T::default);
 
     #[cfg(target_os = "linux")]
-    {
-        if !values.is_empty()
-            && let Some(library) = LinuxNuma::load()?
-            && library.has_multiple_nodes()
-        {
-            let byte_len = checked_len::<T>(count)?;
-            library.tonode_memory(values.as_mut_ptr().cast::<libc::c_void>(), byte_len, node)?;
+    if !values.is_empty() {
+        let byte_len = checked_len::<T>(count)?;
+        // SAFETY: `values` owns exactly `count` T's == `byte_len` bytes and stays
+        // live for the duration of this call.
+        unsafe {
+            migrate_to_node(values.as_mut_ptr().cast::<u8>(), byte_len, node)?;
         }
     }
 
     Ok(values)
+}
+
+/// Best-effort migration of the pages backing an existing allocation toward a
+/// NUMA node.
+///
+/// This does NOT allocate or free: the caller retains ownership of the buffer
+/// and its original allocation layout. It only asks the kernel to move the
+/// buffer's physical pages onto `node` (Linux `numa_tonode_memory`). On a
+/// single-node system, when libnuma is unavailable, or on non-Linux targets it
+/// is a no-op returning `Ok(())`.
+///
+/// Use this instead of [`alloc_on_node`] when you need a buffer with a specific
+/// alignment or allocator: allocate it yourself with the correct [`Layout`], then
+/// migrate its pages. `alloc_on_node` cannot give you a custom alignment because
+/// it returns a plain `Vec` (alignment of `T`); leaking that `Vec` and freeing it
+/// under a different alignment would be undefined behavior.
+///
+/// # Safety
+/// `ptr` must point to a valid, live allocation of at least `byte_len` bytes for
+/// the duration of the call.
+///
+/// # Errors
+/// Returns an error if `node` is out of range or the kernel migration call fails.
+pub unsafe fn migrate_to_node(ptr: *mut u8, byte_len: usize, node: u32) -> Result<()> {
+    validate_node(node)?;
+    if byte_len == 0 {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(library) = LinuxNuma::load()?
+            && library.has_multiple_nodes()
+        {
+            library.tonode_memory(ptr.cast::<libc::c_void>(), byte_len, node)?;
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (ptr, byte_len);
+    }
+
+    Ok(())
 }
 
 /// Return the number of NUMA nodes visible to the current process.
@@ -289,7 +393,8 @@ impl LinuxNuma {
 #[cfg(test)]
 mod tests {
     use super::{alloc_on_node, current_node, node_count, pin_to_node};
-
+    #[cfg(target_os = "linux")]
+    use super::nodemask_for_node;
     #[test]
     fn node_count_is_at_least_one() {
         assert!(node_count() >= 1);
@@ -318,5 +423,23 @@ mod tests {
         let invalid = u32::try_from(node_count()).unwrap_or(u32::MAX);
         let error = pin_to_node(invalid).expect_err("invalid node must fail");
         assert!(matches!(error, crate::Error::InvalidNode { .. }));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn nodemask_size_matches_maxnode() {
+        // maxnode must be node+1 so the kernel copies exactly enough bits.
+        // For node 0 this means a single ulong and maxnode == 1.
+        let (mask, maxnode) = nodemask_for_node(0);
+        assert_eq!(mask.len(), 1);
+        assert_eq!(maxnode, 1);
+        assert_eq!(mask[0], 1);
+
+        // For node 64 the mask needs two ulongs and maxnode == 65.
+        let (mask, maxnode) = nodemask_for_node(64);
+        assert_eq!(mask.len(), 2);
+        assert_eq!(maxnode, 65);
+        assert_eq!(mask[0], 0);
+        assert_eq!(mask[1], 1);
     }
 }

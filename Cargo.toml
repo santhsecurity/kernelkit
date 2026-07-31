@@ -2,18 +2,19 @@
 members = ["."]
 
 [package]
+exclude = ["BACKLOG.md", "target/"]
 name = "kernelkit"
-version = "0.1.1"
+version = "0.1.3"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
-authors = ["Corum Collective LLC <contact@santh.io>"]
-repository = "https://github.com/santhsecurity/Santh"
-homepage = "https://github.com/santhsecurity/kernelkit"
+authors = ["Corum Collective LLC <contact@santh.dev>"]
+repository = "https://github.com/santhreal/kernelkit"
+homepage = "https://santh.dev"
 documentation = "https://docs.rs/kernelkit"
 description = "Cross-platform kernel optimization toolkit with Linux fast paths and safe fallbacks"
 readme = "README.md"
-keywords = ["kernel", "numa", "hugepages", "mlock", "memory"]
+keywords = ["linux", "kernel", "numa", "hugepages", "mlock"]
 categories = ["memory-management", "hardware-support", "os::linux-apis"]
 include = ["src/**", "Cargo.toml"]
 
@@ -25,7 +26,8 @@ thiserror = "2"
 
 [dev-dependencies]
 criterion = "0.5"
-faultkit = { path = "../../testing/faultkit" }
+faultkit = { version = "0.1.1" }
+libc = "0.2"
 proptest = "1"
 tempfile = "3"
 

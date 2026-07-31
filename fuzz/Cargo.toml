@@ -3,7 +3,7 @@ name = "kernelkit-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
-repository = "https://github.com/santhsecurity/kernelkit"
+repository = "https://github.com/santhreal/kernelkit"
 
 [package.metadata]
 cargo-fuzz = true

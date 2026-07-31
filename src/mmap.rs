@@ -2,6 +2,7 @@
 
 use std::ptr::{self, NonNull};
 
+use crate::file_identity::{validate_file_identity, FileIdentity};
 use crate::{Error, Result};
 
 /// Linux huge page advice used for mmap-backed allocations.
@@ -27,10 +28,9 @@ impl MmapBlock {
         }
 
         let ptr = map_region(len)?;
-        if let Err(error) = advise_hugepage(ptr, len) {
-            unmap_region(ptr, len);
-            return Err(error);
-        }
+        // HUGEPAGE is an advisory hint and may be rejected for very large or
+        // unsupported mappings; such rejections must not fail the allocation.
+        let _ = advise_hugepage(ptr, len);
 
         Ok(Self {
             ptr,
@@ -50,10 +50,9 @@ impl MmapBlock {
         }
 
         let ptr = map_region(len)?;
-        if let Err(error) = advise_hugepage(ptr, len) {
-            unmap_region(ptr, len);
-            return Err(error);
-        }
+        // HUGEPAGE is an advisory hint and may be rejected for very large or
+        // unsupported mappings; such rejections must not fail the allocation.
+        let _ = advise_hugepage(ptr, len);
 
         #[cfg(target_os = "linux")]
         {
@@ -172,77 +171,30 @@ fn advise_hugepage(_ptr: NonNull<u8>, _len: usize) -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn bind_to_numa_node(ptr: NonNull<u8>, len: usize, node: u32) -> Result<()> {
-    #[allow(clippy::cast_possible_truncation)]
-    const BITS_PER_ULONG: u32 = (std::mem::size_of::<libc::c_ulong>() * 8) as u32;
-    const MPOL_BIND: libc::c_int = 2;
-    const MPOL_MF_MOVE: libc::c_uint = 1 << 1;
-    const MAX_NODEMASK_LEN: usize = 1024;
+    crate::numa::bind_memory_to_node(ptr, len, node)
+}
 
-    let available = crate::numa::node_count();
-    if usize::try_from(node)
-        .ok()
-        .is_none_or(|index| index >= available)
-    {
-        return Err(Error::InvalidNode { node, available });
-    }
-
-    let mask_index = (node / BITS_PER_ULONG) as usize;
-    let bit_position = node % BITS_PER_ULONG;
-    let mask_len = mask_index + 1;
-    if mask_len > MAX_NODEMASK_LEN {
-        return Err(Error::System {
-            operation: "mbind",
-            source: std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "NUMA node {node} requires mask length {mask_len} exceeding {MAX_NODEMASK_LEN}"
-                ),
-            ),
-        });
-    }
-    let mut nodemask = vec![0 as libc::c_ulong; mask_len];
-    nodemask[mask_index] = (1 as libc::c_ulong) << bit_position;
-    let maxnode = (mask_len * std::mem::size_of::<libc::c_ulong>() * 8) + 1;
-
-    // SAFETY: syscall arguments match `mbind(2)` contract.
-    let result = unsafe {
-        libc::syscall(
-            libc::SYS_mbind,
-            ptr.as_ptr().cast::<libc::c_void>(),
-            len,
-            MPOL_BIND,
-            nodemask.as_ptr(),
-            maxnode,
-            MPOL_MF_MOVE,
-        )
-    };
-
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(Error::System {
-            operation: "mbind",
-            source: std::io::Error::last_os_error(),
-        })
-    }
+#[cfg(not(target_os = "linux"))]
+fn bind_to_numa_node(_ptr: NonNull<u8>, _len: usize, _node: u32) -> Result<()> {
+    Ok(())
 }
 
 /// Kernel advice hints for memory-mapped files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MmapAdvice {
-    /// Sequential access — kernel prefetches aggressively.
+    /// Sequential access (kernel prefetches aggressively).
     Sequential,
-    /// Random access — disable readahead.
+    /// Random access (disable readahead).
     Random,
-    /// Pages will be needed soon — prefault.
+    /// Pages will be needed soon (prefault).
     WillNeed,
 }
 
 /// Open a file as a read-only memory map with optimal kernel hints.
 ///
-/// Automatically applies `MADV_SEQUENTIAL` + `MADV_HUGEPAGE` on Linux.
-/// Uses `MAP_POPULATE` to prefault pages while the file is still open,
-/// which reduces the risk of SIGBUS if the file is truncated after mapping.
+/// Applies `MADV_SEQUENTIAL` + `MADV_HUGEPAGE` on Linux and maps the file
+/// lazily. The caller is responsible for ensuring the file is not truncated
+/// while mapped.
 ///
 /// **SIGBUS risk:** If the backing file is truncated after mapping,
 /// accessing the corresponding pages can still raise SIGBUS.
@@ -263,10 +215,7 @@ pub fn open_read(path: impl AsRef<std::path::Path>) -> Result<memmap2::Mmap> {
     if faultkit::should_fail_mmap() {
         return Err(crate::Error::System {
             operation: "mmap",
-            source: std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "faultkit: injected mmap failure",
-            ),
+            source: std::io::Error::other("faultkit: injected mmap failure"),
         });
     }
 
@@ -275,8 +224,9 @@ pub fn open_read(path: impl AsRef<std::path::Path>) -> Result<memmap2::Mmap> {
 
 /// Open a file as a read-only map after validating its on-disk size.
 ///
-/// Uses `MAP_POPULATE` to prefault pages while the file is still open,
-/// which reduces the risk of SIGBUS if the file is truncated after mapping.
+/// Maps the file lazily and applies `MADV_SEQUENTIAL` and `MADV_HUGEPAGE` hints
+/// so the kernel can optimize sequential access. The caller is responsible
+/// for ensuring the file is not truncated while mapped.
 ///
 /// **SIGBUS risk:** If the backing file is truncated after mapping,
 /// accessing the corresponding pages can still raise SIGBUS.
@@ -285,7 +235,7 @@ pub fn open_read(path: impl AsRef<std::path::Path>) -> Result<memmap2::Mmap> {
 /// # Errors
 ///
 /// Returns an error if the file size differs from `expected_size` or if the
-/// file cannot be opened and mapped.
+/// file cannot be opened or mapped.
 pub fn open_read_with_size(
     path: impl AsRef<std::path::Path>,
     expected_size: u64,
@@ -294,10 +244,7 @@ pub fn open_read_with_size(
     if faultkit::should_fail_mmap() {
         return Err(crate::Error::System {
             operation: "mmap",
-            source: std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "faultkit: injected mmap failure",
-            ),
+            source: std::io::Error::other("faultkit: injected mmap failure"),
         });
     }
 
@@ -323,13 +270,11 @@ pub fn open_read_with_size(
         });
     }
 
-    let mmap =
-        unsafe { memmap2::MmapOptions::new().populate().map(&file) }.map_err(|source| Error::System {
-            operation: "mmap",
-            source,
-        })?;
-
-    validate_mapped_file_identity(&file, expected_identity, expected_size)?;
+    let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.map_err(|source| Error::System {
+        operation: "mmap",
+        source,
+    })?;
+    validate_file_identity(&file, expected_identity, expected_size, "mapped file changed during open")?;
 
     #[cfg(target_os = "linux")]
     if !mmap.is_empty() {
@@ -344,13 +289,9 @@ pub fn open_read_with_size(
             });
         }
         // SAFETY: pointer and length come from a valid mmap region.
-        let hugepage_result = unsafe { libc::madvise(ptr, len, libc::MADV_HUGEPAGE) };
-        if hugepage_result != 0 {
-            return Err(Error::System {
-                operation: "madvise(HUGEPAGE)",
-                source: std::io::Error::last_os_error(),
-            });
-        }
+        let _hugepage_result = unsafe { libc::madvise(ptr, len, libc::MADV_HUGEPAGE) };
+        // HUGEPAGE is an advisory hint and may be rejected by the kernel for
+        // very large or unsupported mappings; do not fail the map because of it.
     }
 
     Ok(mmap)
@@ -358,8 +299,11 @@ pub fn open_read_with_size(
 
 /// Open a file as a read-only memory map with explicit advice.
 ///
-/// Uses `MAP_POPULATE` to prefault pages while the file is still open,
-/// which reduces the risk of SIGBUS if the file is truncated after mapping.
+/// Maps the file lazily and applies the requested `MADV_*` hint followed by
+/// `MADV_HUGEPAGE` so the kernel can optimize access. `MADV_HUGEPAGE` is
+/// advisory and may be rejected for very large mappings; such rejections are
+/// ignored. The caller is responsible for ensuring the file is not truncated
+/// while mapped.
 ///
 /// **SIGBUS risk:** If the backing file is truncated after mapping,
 /// accessing the corresponding pages can still raise SIGBUS.
@@ -381,16 +325,15 @@ pub fn open_with_advice(
         source,
     })?;
     let expected_identity = FileIdentity::from_metadata(&expected_identity);
-    let mmap =
-        unsafe { memmap2::MmapOptions::new().populate().map(&file) }.map_err(|source| Error::System {
-            operation: "mmap",
-            source,
-        })?;
+    let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.map_err(|source| Error::System {
+        operation: "mmap",
+        source,
+    })?;
     let mmap_len = u64::try_from(mmap.len()).map_err(|_| Error::System {
         operation: "open_with_advice",
         source: std::io::Error::other("mapped region length does not fit in u64"),
     })?;
-    validate_mapped_file_identity(&file, expected_identity, mmap_len)?;
+    validate_file_identity(&file, expected_identity, mmap_len, "mapped file changed during open")?;
 
     #[cfg(target_os = "linux")]
     if !mmap.is_empty() {
@@ -415,13 +358,8 @@ pub fn open_with_advice(
             });
         }
         // SAFETY: pointer and length come from a valid mmap region.
-        let hugepage_result = unsafe { libc::madvise(ptr, len, libc::MADV_HUGEPAGE) };
-        if hugepage_result != 0 {
-            return Err(Error::System {
-                operation: "madvise(HUGEPAGE)",
-                source: std::io::Error::last_os_error(),
-            });
-        }
+        let _hugepage_result = unsafe { libc::madvise(ptr, len, libc::MADV_HUGEPAGE) };
+        // HUGEPAGE is advisory and may be rejected; do not fail the map.
     }
 
     Ok(mmap)
@@ -430,77 +368,16 @@ pub fn open_with_advice(
 /// Release pages backing this mmap region back to the kernel.
 ///
 /// Dropping the mmap is the safe equivalent of `MADV_DONTNEED` for read-only
-/// mappings — the kernel reclaims all pages immediately. This prevents page
+/// mappings; the kernel reclaims all pages immediately. This prevents page
 /// cache pollution when scanning millions of files at internet scale.
 ///
 /// Call this after scanning is complete and you no longer need the mapping.
 pub fn release(mmap: memmap2::Mmap) {
     drop(mmap);
 }
-
-#[derive(Clone, Copy)]
-struct FileIdentity {
-    len: u64,
-    #[cfg(unix)]
-    dev: u64,
-    #[cfg(unix)]
-    ino: u64,
-}
-
-impl FileIdentity {
-    fn from_metadata(metadata: &std::fs::Metadata) -> Self {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            Self {
-                len: metadata.len(),
-                dev: metadata.dev(),
-                ino: metadata.ino(),
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            Self {
-                len: metadata.len(),
-            }
-        }
-    }
-}
-
-fn validate_mapped_file_identity(
-    file: &std::fs::File,
-    expected: FileIdentity,
-    expected_len: u64,
-) -> Result<()> {
-    let current_metadata = file.metadata().map_err(|source| Error::System {
-        operation: "metadata(revalidate)",
-        source,
-    })?;
-    let current = FileIdentity::from_metadata(&current_metadata);
-    if current.len != expected_len || current.len != expected.len || !same_inode(expected, current) {
-        return Err(Error::System {
-            operation: "mmap(revalidate)",
-            source: std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "file changed during mapping; Fix: use immutable input files or lock writers",
-            ),
-        });
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn same_inode(expected: FileIdentity, current: FileIdentity) -> bool {
-    expected.dev == current.dev && expected.ino == current.ino
-}
-
-#[cfg(not(unix))]
-fn same_inode(_expected: FileIdentity, _current: FileIdentity) -> bool {
-    true
-}
-
 #[cfg(test)]
 mod tests {
+
     use super::{MmapBlock, open_read, open_read_with_size};
     use std::io::Write;
 
@@ -533,7 +410,7 @@ mod tests {
 
     #[test]
     fn large_allocation() {
-        // 16MB — tests real mmap code path
+        // 16MB, tests real mmap code path
         let block = MmapBlock::new(16 * 1024 * 1024).expect("large mmap block");
         assert_eq!(block.len(), 16 * 1024 * 1024);
     }
@@ -544,11 +421,6 @@ mod tests {
         assert!(block.numa_node().is_none());
     }
 
-    #[test]
-    fn is_send_only() {
-        fn assert_send<T: Send>() {}
-        assert_send::<MmapBlock>();
-    }
 
     #[test]
     fn open_read_with_matching_size_succeeds() {

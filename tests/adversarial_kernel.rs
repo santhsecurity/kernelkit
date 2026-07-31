@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Exhaustive adversarial tests for kernelkit.
 //!
 //! These tests verify:

@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Extreme scale tests for kernelkit.
 
 #[test]

@@ -16,14 +16,12 @@ const KIB_TO_BYTES: u64 = 1024;
 
 #[cfg(target_os = "linux")]
 impl MemoryStatus {
-    /// Read memory counters from `/proc/meminfo`.
+    /// Construct an explicit all-zero `MemoryStatus`.
     ///
-    /// # Errors
-    ///
-    /// If `/proc/meminfo` cannot be read or parsed, the function returns an
-    /// all-zero structure. This is explicit, fail-safe behavior so callers can
-    /// continue monitoring without panic. Fix: keep `/proc/meminfo` readable and
-    /// writable to trusted users, or provide a platform-specific alternative.
+    /// This is the non-Linux default (procfs is unavailable there). It is NOT
+    /// used as a failure fallback on Linux: a `/proc/meminfo` read/parse error
+    /// propagates as `Err` from [`Self::read_from_meminfo`] rather than being
+    /// silently masked as zero (fail-closed, not silent-degrade).
     pub fn zero() -> Self {
         Self {
             available_bytes: 0,
@@ -43,6 +41,16 @@ impl MemoryStatus {
         raw.parse::<u64>().ok()
     }
 
+    /// Read memory counters from `/proc/meminfo`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(Error::SysfsRead)` if `/proc/meminfo` cannot be read, or
+    /// `Err(Error::SysfsParse)` if `MemTotal`/`MemAvailable` are missing or
+    /// unparsable. The error is propagated (fail-closed) rather than masked as
+    /// an all-zero result, so callers cannot mistake an unreadable procfs for a
+    /// genuine zero-memory reading. Fix: keep `/proc/meminfo` readable by the
+    /// scanning user, or provide a platform-specific alternative.
     fn read_from_meminfo() -> crate::Result<Self> {
         let contents = std::fs::read_to_string(PROC_MEMINFO_PATH).map_err(|source| Error::SysfsRead {
             path: PROC_MEMINFO_PATH,
@@ -190,7 +198,7 @@ mod tests {
             .unwrap_or_default();
 
         assert_eq!(mem_total_kib, Some(1024));
-        assert_eq!(available_kib, Some(190).unwrap_or_default());
+        assert_eq!(available_kib, 190);
         assert_eq!(
             MemoryStatus::kib_to_bytes(available_kib),
             190 * KIB_TO_BYTES

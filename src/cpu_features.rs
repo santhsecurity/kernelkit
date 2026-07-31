@@ -117,7 +117,7 @@ fn detect_neon() -> bool {
 
 #[cfg(target_arch = "arm")]
 fn detect_neon() -> bool {
-    true
+    std::arch::is_arm_feature_detected!("neon")
 }
 
 #[cfg(not(any(target_arch = "aarch64", target_arch = "arm")))]

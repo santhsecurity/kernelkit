@@ -28,6 +28,9 @@
         clippy::panic
     )
 )]
+// Unit tests legitimately unwrap/expect; the manifest-level [lints.clippy]
+// deny would otherwise fail `cargo clippy --all-targets` on test builds.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![allow(
     clippy::doc_markdown,
     clippy::module_name_repetitions,
@@ -42,6 +45,8 @@ pub mod binformat;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod corpus;
 pub mod cpu_features;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod file_identity;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod hugepages;
 #[cfg(not(target_arch = "wasm32"))]

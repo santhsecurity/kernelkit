@@ -111,6 +111,15 @@ impl PerfCounter {
                 std::mem::size_of::<u64>(),
             )
         };
+        if n == 0 {
+            return Err(Error::System {
+                operation: "perf counter read",
+                source: std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "perf counter returned EOF (counter may have been closed)",
+                ),
+            });
+        }
         if n != std::mem::size_of::<u64>().try_into().unwrap_or(0) {
             return Err(Error::System {
                 operation: "perf counter read",
@@ -148,5 +157,38 @@ impl Drop for PerfCounter {
         unsafe {
             libc::close(self.fd);
         }
+    }
+}
+
+#[cfg(test)]
+impl PerfCounter {
+    /// Construct a counter around an existing file descriptor.
+    /// The fd will be closed when the counter is dropped.
+    pub(crate) fn from_raw_fd(fd: RawFd, counter_type: HwCounter) -> Self {
+        Self { fd, counter_type }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HwCounter, PerfCounter};
+
+    #[test]
+    fn read_returns_unexpected_eof_on_zero_byte_read() {
+        // A pipe whose write end is closed returns 0 on read, which must be
+        // reported as UnexpectedEof rather than a stale last_os_error.
+        let mut pipe = [0; 2];
+        let result = unsafe { libc::pipe(pipe.as_mut_ptr()) };
+        assert_eq!(result, 0, "pipe creation failed");
+        unsafe { libc::close(pipe[1]) };
+
+        let counter = PerfCounter::from_raw_fd(pipe[0], HwCounter::Cycles);
+        let err = counter.read().unwrap_err();
+        let source = err.to_string();
+        assert!(
+            source.contains("EOF") || source.contains("unexpected end"),
+            "expected UnexpectedEof-like error, got: {source}"
+        );
+        assert_eq!(counter.counter_type(), HwCounter::Cycles);
     }
 }

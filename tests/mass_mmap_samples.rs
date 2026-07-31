@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use kernelkit::Error;
 use kernelkit::mmap::{MmapAdvice, open_read, open_read_with_size, open_with_advice};
 use std::io::Write;

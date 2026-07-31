@@ -9,7 +9,7 @@ use std::os::fd::AsRawFd;
 
 /// Advise the kernel to read ahead `count` bytes starting at `offset`.
 ///
-/// This is a hint — the kernel may ignore it if memory pressure is high.
+/// This is a hint (the kernel may ignore it if memory pressure is high).
 /// On non-Linux platforms this is a no-op.
 ///
 /// # Errors
