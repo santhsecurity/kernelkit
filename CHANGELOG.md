@@ -5,6 +5,16 @@ All notable changes to `kernelkit` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-08-07
+
+### Fixed
+- Fixed silent-fallback in `cpu_features::parse_cache_value` for unit suffixes (`KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `B`, `BYTES`), preventing silent fallback to L3 size `0` on high-end server processors with gigabyte-scale L3 caches.
+- Added `probe_l1_cache_size` to inspect cache `type` (`Data` / `Unified`) so architectures with `index0` as `Instruction` cache accurately resolve L1 Data cache size.
+- Fixed fatal error propagation in `corpus::advise_sequential` when `libc::madvise(..., MADV_HUGEPAGE)` returns non-zero, making `MADV_HUGEPAGE` non-fatal advisory to align with `mmap::open_with_advice` and avoid failing corpus loading on systems with disabled or unsupported THP.
+- Fixed `affinity::parse_irq_affinity` `ParseIntError` when parsing `/proc/irq/<irq>/smp_affinity` masks containing `0x`/`0X` hex prefixes.
+- Fixed `memory::MemoryStatus::parse_kib_value` line parsing when `/proc/meminfo` lines lack whitespace around colons.
+- Fixed `numa::node_count()` on Linux falling back to `1` when `libnuma.so` is missing by parsing sysfs `/sys/devices/system/node/online` and `/sys/devices/system/node/node*` directories.
+
 ## [0.1.4] - 2026-08-07
 
 ### Changed

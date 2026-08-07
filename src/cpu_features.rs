@@ -127,13 +127,33 @@ fn detect_neon() -> bool {
 
 #[cfg(target_os = "linux")]
 fn detect_cache_sizes() -> (usize, usize, usize, usize) {
-    (
-        read_cache_value("/sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size")
-            .unwrap_or(64),
-        read_cache_value("/sys/devices/system/cpu/cpu0/cache/index0/size").unwrap_or(32 * 1024),
-        read_cache_value("/sys/devices/system/cpu/cpu0/cache/index2/size").unwrap_or(256 * 1024),
-        read_cache_value("/sys/devices/system/cpu/cpu0/cache/index3/size").unwrap_or_default(),
-    )
+    let line_size = read_cache_value("/sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size")
+        .or_else(|| read_cache_value("/sys/devices/system/cpu/cpu0/cache/index1/coherency_line_size"))
+        .unwrap_or(64);
+    let l1_size = probe_l1_cache_size().unwrap_or(32 * 1024);
+    let l2_size = read_cache_value("/sys/devices/system/cpu/cpu0/cache/index2/size").unwrap_or(256 * 1024);
+    let l3_size = read_cache_value("/sys/devices/system/cpu/cpu0/cache/index3/size").unwrap_or_default();
+    (line_size, l1_size, l2_size, l3_size)
+}
+
+#[cfg(target_os = "linux")]
+fn probe_l1_cache_size() -> Option<usize> {
+    for index in 0..=1 {
+        let type_path = format!("/sys/devices/system/cpu/cpu0/cache/index{index}/type");
+        if let Ok(cache_type) = std::fs::read_to_string(&type_path) {
+            let cache_type = cache_type.trim().to_ascii_lowercase();
+            if cache_type == "data" || cache_type == "unified" {
+                let size_path = format!("/sys/devices/system/cpu/cpu0/cache/index{index}/size");
+                if let Ok(raw) = std::fs::read_to_string(&size_path) {
+                    if let Ok(val) = parse_cache_value(raw.trim()) {
+                        return Some(val);
+                    }
+                }
+            }
+        }
+    }
+    read_cache_value("/sys/devices/system/cpu/cpu0/cache/index0/size")
+        .or_else(|| read_cache_value("/sys/devices/system/cpu/cpu0/cache/index1/size"))
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -149,21 +169,49 @@ fn read_cache_value(path: &'static str) -> Option<usize> {
 
 #[cfg(target_os = "linux")]
 fn parse_cache_value(raw: &str) -> Result<usize, ()> {
-    let uppercase = raw.trim().to_ascii_uppercase();
-    if let Some(value) = uppercase.strip_suffix('K') {
-        let size = value.parse::<usize>().map_err(|_| ())?;
-        return size.checked_mul(1024).ok_or(());
+    let trimmed = raw.trim().to_ascii_uppercase();
+    if trimmed.is_empty() {
+        return Err(());
     }
-    if let Some(value) = uppercase.strip_suffix('M') {
-        let size = value.parse::<usize>().map_err(|_| ())?;
+    if let Some(val) = trimmed
+        .strip_suffix("GIB")
+        .or_else(|| trimmed.strip_suffix("GB"))
+        .or_else(|| trimmed.strip_suffix('G'))
+    {
+        let size = val.trim().parse::<usize>().map_err(|_| ())?;
+        return size
+            .checked_mul(1024)
+            .and_then(|v| v.checked_mul(1024))
+            .and_then(|v| v.checked_mul(1024))
+            .ok_or(());
+    }
+    if let Some(val) = trimmed
+        .strip_suffix("MIB")
+        .or_else(|| trimmed.strip_suffix("MB"))
+        .or_else(|| trimmed.strip_suffix('M'))
+    {
+        let size = val.trim().parse::<usize>().map_err(|_| ())?;
         return size
             .checked_mul(1024)
             .and_then(|v| v.checked_mul(1024))
             .ok_or(());
     }
-    uppercase.parse::<usize>().map_err(|_| ())
+    if let Some(val) = trimmed
+        .strip_suffix("KIB")
+        .or_else(|| trimmed.strip_suffix("KB"))
+        .or_else(|| trimmed.strip_suffix('K'))
+    {
+        let size = val.trim().parse::<usize>().map_err(|_| ())?;
+        return size.checked_mul(1024).ok_or(());
+    }
+    if let Some(val) = trimmed
+        .strip_suffix("BYTES")
+        .or_else(|| trimmed.strip_suffix('B'))
+    {
+        return val.trim().parse::<usize>().map_err(|_| ());
+    }
+    trimmed.parse::<usize>().map_err(|_| ())
 }
-
 #[cfg(test)]
 mod tests {
     use super::detect;
@@ -183,5 +231,22 @@ mod tests {
         let features = detect();
         assert!(features.l1_size > 0);
         assert!(features.l2_size > 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_cache_value_handles_all_unit_suffixes() {
+        use super::parse_cache_value;
+        assert_eq!(parse_cache_value("32K"), Ok(32 * 1024));
+        assert_eq!(parse_cache_value("32KB"), Ok(32 * 1024));
+        assert_eq!(parse_cache_value("32 KiB"), Ok(32 * 1024));
+        assert_eq!(parse_cache_value("256M"), Ok(256 * 1024 * 1024));
+        assert_eq!(parse_cache_value("1G"), Ok(1024 * 1024 * 1024));
+        assert_eq!(parse_cache_value("1 GiB"), Ok(1024 * 1024 * 1024));
+        assert_eq!(parse_cache_value("64 B"), Ok(64));
+        assert_eq!(parse_cache_value("64BYTES"), Ok(64));
+        assert_eq!(parse_cache_value("4096"), Ok(4096));
+        assert!(parse_cache_value("invalid").is_err());
+        assert!(parse_cache_value("").is_err());
     }
 }

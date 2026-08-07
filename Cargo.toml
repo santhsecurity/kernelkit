@@ -4,7 +4,7 @@ members = ["."]
 [package]
 exclude = ["BACKLOG.md", "target/"]
 name = "kernelkit"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -29,7 +29,7 @@ thiserror = "2"
 
 [dev-dependencies]
 criterion = "0.5"
-faultkit = { version = "0.2.0" }
+faultkit = { version = "0.2.1" }
 libc = "0.2"
 proptest = "1"
 tempfile = "3"

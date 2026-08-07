@@ -35,10 +35,10 @@ impl MemoryStatus {
     }
 
     fn parse_kib_value(line: &str) -> Option<u64> {
-        let mut parts = line.split_whitespace();
-        parts.next()?;
-        let raw = parts.next()?;
-        raw.parse::<u64>().ok()
+        let (_, rest) = line.split_once(':')?;
+        let token = rest.trim().split_whitespace().next()?;
+        let digits: String = token.chars().take_while(|c| c.is_ascii_digit()).collect();
+        digits.parse::<u64>().ok()
     }
 
     /// Read memory counters from `/proc/meminfo`.
@@ -163,6 +163,12 @@ mod tests {
         assert_eq!(parsed, Some(16_384));
         assert_eq!(expected.total_bytes, 16 * KIB_TO_BYTES);
         assert_eq!(expected.available_bytes, 8 * KIB_TO_BYTES);
+    }
+
+    #[test]
+    fn parse_kib_value_handles_no_space_after_colon() {
+        assert_eq!(MemoryStatus::parse_kib_value("MemTotal:16384 kB"), Some(16_384));
+        assert_eq!(MemoryStatus::parse_kib_value("MemAvailable:  8192kB"), Some(8_192));
     }
 
     #[test]

@@ -53,7 +53,12 @@ pub fn pin_to_core(core_id: usize) -> Result<()> {
 fn parse_irq_affinity(content: &str) -> Result<Vec<u32>> {
     let mut cores = Vec::new();
     for (group_idx, chunk) in content.trim().split(',').rev().enumerate() {
-        let mask = u64::from_str_radix(chunk.trim(), 16).map_err(|_| Error::System {
+        let clean_chunk = chunk.trim();
+        let hex_str = clean_chunk
+            .strip_prefix("0x")
+            .or_else(|| clean_chunk.strip_prefix("0X"))
+            .unwrap_or(clean_chunk);
+        let mask = u64::from_str_radix(hex_str, 16).map_err(|_| Error::System {
             operation: "read_irq_affinity",
             source: std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -147,5 +152,11 @@ mod tests {
         // Core 64 set in the highest group, cores 0 and 31 in lower groups.
         let cores = parse_irq_affinity("00000001,00000000,80000001").unwrap();
         assert_eq!(cores, vec![0, 31, 64]);
+    }
+
+    #[test]
+    fn parse_irq_affinity_handles_hex_prefix() {
+        let cores = parse_irq_affinity("0x00000001,0x00000003").unwrap();
+        assert_eq!(cores, vec![0, 1, 32]);
     }
 }

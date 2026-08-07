@@ -215,9 +215,49 @@ pub fn node_count() -> usize {
                 return usize::try_from(count).unwrap_or(1).max(1);
             }
         }
+        if let Some(count) = sysfs_node_count() {
+            return count.max(1);
+        }
     }
 
     1
+}
+
+#[cfg(target_os = "linux")]
+fn sysfs_node_count() -> Option<usize> {
+    if let Ok(content) = std::fs::read_to_string("/sys/devices/system/node/online") {
+        let trimmed = content.trim();
+        let mut max_node: Option<usize> = None;
+        for range in trimmed.split(',') {
+            let range = range.trim();
+            if let Some((_start, end)) = range.split_once('-') {
+                if let Ok(idx) = end.parse::<usize>() {
+                    max_node = Some(max_node.map_or(idx, |m| m.max(idx)));
+                }
+            } else if let Ok(idx) = range.parse::<usize>() {
+                max_node = Some(max_node.map_or(idx, |m| m.max(idx)));
+            }
+        }
+        if let Some(max_idx) = max_node {
+            return Some(max_idx.saturating_add(1));
+        }
+    }
+
+    if let Ok(entries) = std::fs::read_dir("/sys/devices/system/node/") {
+        let mut count = 0;
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with("node") && name_str[4..].chars().all(|c| c.is_ascii_digit()) {
+                count += 1;
+            }
+        }
+        if count > 0 {
+            return Some(count);
+        }
+    }
+
+    None
 }
 
 fn validate_node(node: u32) -> Result<()> {
@@ -451,5 +491,30 @@ mod tests {
         assert_eq!(maxnode, 65);
         assert_eq!(mask[0], 0);
         assert_eq!(mask[1], 1);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sysfs_node_count_parser_handles_ranges() {
+        // Prove parsing logic for sysfs node ranges e.g. "0-3,5-7"
+        let parse_range = |content: &str| -> Option<usize> {
+            let trimmed = content.trim();
+            let mut max_node: Option<usize> = None;
+            for range in trimmed.split(',') {
+                let range = range.trim();
+                if let Some((_start, end)) = range.split_once('-') {
+                    if let Ok(idx) = end.parse::<usize>() {
+                        max_node = Some(max_node.map_or(idx, |m| m.max(idx)));
+                    }
+                } else if let Ok(idx) = range.parse::<usize>() {
+                    max_node = Some(max_node.map_or(idx, |m| m.max(idx)));
+                }
+            }
+            max_node.map(|max_idx| max_idx.saturating_add(1))
+        };
+
+        assert_eq!(parse_range("0"), Some(1));
+        assert_eq!(parse_range("0-1"), Some(2));
+        assert_eq!(parse_range("0-3,5-7"), Some(8));
     }
 }

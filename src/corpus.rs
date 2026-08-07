@@ -210,18 +210,8 @@ fn advise_sequential(mmap: &Mmap, path: &Path) -> Result<()> {
             )),
         });
     }
-    // SAFETY: advisory call against a valid mapping.
-    let hugepage_result = unsafe { libc::madvise(ptr, mmap.len(), libc::MADV_HUGEPAGE) };
-    if hugepage_result != 0 {
-        return Err(Error::System {
-            operation: "madvise(HUGEPAGE)",
-            source: std::io::Error::other(format!(
-                "{} (path: {})",
-                std::io::Error::last_os_error(),
-                path.display()
-            )),
-        });
-    }
+    // SAFETY: advisory call against a valid mapping; HUGEPAGE is advisory and rejections are ignored.
+    let _hugepage_result = unsafe { libc::madvise(ptr, mmap.len(), libc::MADV_HUGEPAGE) };
     Ok(())
 }
 
