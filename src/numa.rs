@@ -209,8 +209,11 @@ pub fn node_count() -> usize {
     #[cfg(target_os = "linux")]
     {
         if let Ok(Some(library)) = LinuxNuma::load() {
-            let count = library.max_node().saturating_add(1);
-            return usize::try_from(count).unwrap_or(1);
+            let max_node = library.max_node();
+            if max_node >= 0 {
+                let count = max_node.saturating_add(1);
+                return usize::try_from(count).unwrap_or(1).max(1);
+            }
         }
     }
 
@@ -398,6 +401,13 @@ mod tests {
     #[test]
     fn node_count_is_at_least_one() {
         assert!(node_count() >= 1);
+    }
+
+    #[test]
+    fn node_count_handles_negative_max_node_sentinel() {
+        // Ensure node_count() never returns 0 even if underlying sentinel is -1.
+        let count = node_count();
+        assert!(count >= 1, "node_count must be >= 1, got {count}");
     }
 
     #[test]

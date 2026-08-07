@@ -375,11 +375,11 @@ mod tests {
     #[test]
     fn huge_page_vec_write_read_roundtrip() {
         let mut values = HugePageVec::<u32>::new(256);
-        for (i, slot) in values.as_mut_slice().iter_mut().enumerate() {
-            *slot = u32::try_from(i).expect("index fits in u32") * 7;
+        for i in 0..256 {
+            values.as_mut_slice()[i] = i as u32 * 7;
         }
-        for (i, slot) in values.as_slice().iter().enumerate() {
-            assert_eq!(*slot, u32::try_from(i).expect("index fits in u32") * 7);
+        for i in 0..256 {
+            assert_eq!(values.as_slice()[i], i as u32 * 7);
         }
     }
 

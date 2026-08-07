@@ -215,7 +215,10 @@ pub fn open_read(path: impl AsRef<std::path::Path>) -> Result<memmap2::Mmap> {
     if faultkit::should_fail_mmap() {
         return Err(crate::Error::System {
             operation: "mmap",
-            source: std::io::Error::other("faultkit: injected mmap failure"),
+            source: std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "faultkit: injected mmap failure",
+            ),
         });
     }
 
@@ -244,7 +247,10 @@ pub fn open_read_with_size(
     if faultkit::should_fail_mmap() {
         return Err(crate::Error::System {
             operation: "mmap",
-            source: std::io::Error::other("faultkit: injected mmap failure"),
+            source: std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "faultkit: injected mmap failure",
+            ),
         });
     }
 

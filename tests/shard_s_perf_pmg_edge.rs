@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 //! S-perf-pmg: binformat and cpu_features edge catalog.
 
 use kernelkit::binformat::FileHeader;
